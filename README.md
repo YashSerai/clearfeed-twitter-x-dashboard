@@ -52,7 +52,7 @@ The bootstrap script installs Python dependencies and Playwright Chromium for yo
 
 ## Quickstart
 ```powershell
-git clone <your-repo-url> "X Signal Dashboard"
+git clone https://github.com/YashSerai/x-signal-dashboard.git "X Signal Dashboard"
 cd "X Signal Dashboard"
 .\scripts\bootstrap.ps1
 .\scripts\setup.ps1
@@ -147,7 +147,6 @@ If you want to improve the source ranking, dashboard UX, or onboarding flow, ope
 
 ## Before You Publish
 - Add sanitized dashboard screenshots or a short GIF.
-- Replace `<your-repo-url>` in the quickstart with the actual repo URL.
 - Test the quickstart on a clean Windows machine or VM.
 - Test local-only approval.
 - Test direct posting with X API credentials.
