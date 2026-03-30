@@ -56,7 +56,7 @@ class AppConfig:
     storage_state_path: Path
     timezone: str
     playwright_headless: bool
-    google_cloud_project: str
+    google_cloud_project: str | None
     google_cloud_location: str
     google_application_credentials: str | None
     gemini_text_model: str
@@ -87,6 +87,72 @@ class AppConfig:
             self.x_access_token_secret,
         ]
         return all(bool(item) for item in required)
+
+    @property
+    def drafting_enabled(self) -> bool:
+        return bool(self.google_cloud_project and self.google_application_credentials)
+
+    @property
+    def session_ready(self) -> bool:
+        return self.storage_state_path.exists()
+
+    @property
+    def sources_ready(self) -> bool:
+        return bool(self.sources)
+
+    def setup_status(self) -> dict[str, dict[str, str | bool]]:
+        return {
+            "profiles": {
+                "ok": True,
+                "label": "Voice Profiles",
+                "detail": "Profile templates are present.",
+            },
+            "google": {
+                "ok": self.drafting_enabled,
+                "label": "Google Drafting",
+                "detail": (
+                    "Drafting is enabled."
+                    if self.drafting_enabled
+                    else "Set GOOGLE_CLOUD_PROJECT and GOOGLE_APPLICATION_CREDENTIALS to enable drafting."
+                ),
+            },
+            "session": {
+                "ok": self.session_ready,
+                "label": "X Session",
+                "detail": (
+                    "Playwright session is ready."
+                    if self.session_ready
+                    else "Run scripts/capture-x-session.ps1 after logging into X."
+                ),
+            },
+            "sources": {
+                "ok": self.sources_ready,
+                "label": "Discovery Sources",
+                "detail": (
+                    f"{len(self.sources)} source(s) configured."
+                    if self.sources_ready
+                    else "Add at least one source URL in .env or data/sources/x_sources.yaml."
+                ),
+            },
+            "posting": {
+                "ok": self.posting_enabled,
+                "label": "X API Posting",
+                "detail": (
+                    "Posting is enabled."
+                    if self.posting_enabled
+                    else "X API credentials are missing. Approvals will stay local."
+                ),
+            },
+            "telegram": {
+                "ok": self.telegram_enabled,
+                "label": "Telegram Mirror",
+                "detail": (
+                    "Telegram mirroring is enabled."
+                    if self.telegram_enabled
+                    else "Telegram is optional and currently disabled."
+                ),
+            },
+        }
 
 
 def load_config(root: str | Path | None = None) -> AppConfig:
@@ -160,7 +226,7 @@ def load_config(root: str | Path | None = None) -> AppConfig:
         ).resolve(),
         timezone=os.environ.get("TIMEZONE", "America/Vancouver"),
         playwright_headless=_get_bool("PLAYWRIGHT_HEADLESS", True),
-        google_cloud_project=_require_env("GOOGLE_CLOUD_PROJECT"),
+        google_cloud_project=_optional_env("GOOGLE_CLOUD_PROJECT"),
         google_cloud_location=os.environ.get("GOOGLE_CLOUD_LOCATION", "global"),
         google_application_credentials=os.environ.get("GOOGLE_APPLICATION_CREDENTIALS") or None,
         gemini_text_model=os.environ.get("GEMINI_TEXT_MODEL", "gemini-3-flash-preview"),

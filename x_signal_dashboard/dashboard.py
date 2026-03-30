@@ -43,6 +43,9 @@ def run_dashboard(host: str = "127.0.0.1", port: int = 8787) -> None:
                 database_path,
                 status,
                 draft_text_limit,
+                setup_status=service.config.setup_status(),
+                drafting_enabled=service.config.drafting_enabled,
+                worker_ready=service.config.session_ready and service.config.sources_ready,
                 posting_enabled=service.config.posting_enabled,
                 telegram_enabled=service.config.telegram_enabled,
                 worker_min_delay_minutes=service.config.worker.min_delay_minutes,
@@ -167,6 +170,9 @@ def _render_dashboard(
     database_path: Path,
     status: dict[str, Any],
     draft_text_limit: int,
+    setup_status: dict[str, dict[str, str | bool]],
+    drafting_enabled: bool,
+    worker_ready: bool,
     posting_enabled: bool,
     telegram_enabled: bool,
     worker_min_delay_minutes: int,
@@ -266,10 +272,12 @@ def _render_dashboard(
         f"<tr><td>{row['id']}</td><td>{row['status']}</td><td>{_fmt_time(row['started_at'])}</td><td>{_fmt_time(row['finished_at'])}</td><td>{_escape(row['notes'] or '')}</td></tr>"
         for row in latest_runs
     )
-    queue_cards_html = "".join(_candidate_card(row, draft_text_limit, posting_enabled) for row in queue_candidates)
+    queue_cards_html = "".join(
+        _candidate_card(row, draft_text_limit, posting_enabled, drafting_enabled) for row in queue_candidates
+    )
     queue_nav_html = "".join(_queue_jump_button(row) for row in queue_candidates)
     original_drafts_html = "".join(
-        _original_draft_card(row, draft_text_limit, posting_enabled) for row in latest_original_drafts
+        _original_draft_card(row, draft_text_limit, posting_enabled, drafting_enabled) for row in latest_original_drafts
     )
     flash_html = (
         f'<div class="notice ok" data-notice="flash"><span>{_escape(flash)}</span><button type="button" class="notice-close" data-dismiss-notice aria-label="Dismiss notice">Dismiss</button></div>'
@@ -291,6 +299,9 @@ def _render_dashboard(
     )
     task_html = "".join(
         f"<li><strong>{_escape(key)}</strong><span>{_escape(value)}</span></li>" for key, value in task_info.items()
+    )
+    setup_html = "".join(
+        _setup_status_row(str(item["label"]), bool(item["ok"]), str(item["detail"])) for item in setup_status.values()
     )
 
     return f"""<!doctype html>
@@ -372,6 +383,13 @@ def _render_dashboard(
     ul.stats {{ list-style:none; padding:0; margin:0; }}
     ul.stats li {{ display:flex; justify-content:space-between; padding:10px 0; border-bottom:1px solid rgba(255,255,255,.06); }}
     ul.stats li:last-child {{ border-bottom:none; }}
+    .setup-stack {{ display:grid; gap:10px; }}
+    .setup-item {{ padding:12px 14px; border-radius:16px; border:1px solid var(--border); background: rgba(255,255,255,.02); }}
+    .setup-item-head {{ display:flex; justify-content:space-between; align-items:center; gap:10px; margin-bottom:6px; }}
+    .setup-item p {{ margin:0; color: var(--muted); line-height: 1.45; font-size: 13px; }}
+    .badge-mini {{ padding:4px 8px; border-radius:999px; font-size:12px; font-weight:700; }}
+    .badge-mini-ok {{ color: var(--ok); background: rgba(52,211,153,.12); }}
+    .badge-mini-warn {{ color: var(--warn); background: rgba(247,199,95,.12); }}
     table {{ width:100%; border-collapse: collapse; font-size: 14px; }}
     th, td {{ text-align:left; padding: 10px 8px; border-bottom:1px solid rgba(255,255,255,.06); vertical-align: top; }}
     th {{ color: var(--muted); font-weight: 600; }}
@@ -396,6 +414,12 @@ def _render_dashboard(
       background: transparent;
       color: var(--muted);
     }}
+    button:disabled {{
+      opacity: .48;
+      cursor: not-allowed;
+      border-color: rgba(255,255,255,.08);
+    }}
+    .inline-warning {{ margin-top: 10px; color: var(--warn); font-size: 13px; line-height: 1.45; }}
     .notice {{
       padding: 12px 14px;
       border-radius: 14px;
@@ -878,14 +902,19 @@ def _render_dashboard(
         <ul class="stats">{draft_html}</ul>
       </section>
       <section class="card span-8">
+        <h2>Setup Status</h2>
+        <div class="setup-stack">{setup_html}</div>
+      </section>
+      <section class="card span-8">
         <h2>System Controls</h2>
         <div class="controls">
-          {_post_button('/system', 'action', 'start', None, None, 'Start Worker', 'ok', 'Starting worker...')}
+          {_post_button('/system', 'action', 'start', None, None, 'Start Worker', 'ok', 'Starting worker...', disabled=not worker_ready, disabled_reason='Configure at least one source and capture an X session before starting the worker.')}
           {_post_button('/system', 'action', 'stop', None, None, 'Stop Worker', 'bad', 'Stopping worker...')}
-          {_post_button('/system', 'action', 'restart', None, None, 'Restart Worker', '', 'Restarting worker...')}
-          {_post_button('/system', 'action', 'run_cycle', None, None, 'Run Cycle Now', '', 'Running a cycle now...')}
+          {_post_button('/system', 'action', 'restart', None, None, 'Restart Worker', '', 'Restarting worker...', disabled=not worker_ready, disabled_reason='Configure at least one source and capture an X session before restarting the worker.')}
+          {_post_button('/system', 'action', 'run_cycle', None, None, 'Run Cycle Now', '', 'Running a cycle now...', disabled=not worker_ready, disabled_reason='Configure at least one source and capture an X session before running a cycle.')}
         </div>
         <div class="meta" style="margin-top:10px;">The dashboard stays online. These controls only stop or restart the worker loop.</div>
+        {'' if worker_ready else '<div class="inline-warning">Worker actions are disabled until an X session is captured and at least one source is configured.</div>'}
       </section>
       <section class="card span-4">
         <h2>Scheduled Task</h2>
@@ -895,8 +924,9 @@ def _render_dashboard(
         <h2>Create Original Drafts</h2>
         <form method="post" action="/original">
           <input type="text" name="topic" placeholder="Optional topic, for example: new OpenAI parameter changes">
-          <button class="ok" type="submit" data-busy-label="Generating original drafts...">Generate Original Drafts</button>
+          <button class="ok" type="submit" data-busy-label="Generating original drafts..."{' disabled title="Set GOOGLE_CLOUD_PROJECT and GOOGLE_APPLICATION_CREDENTIALS to enable original drafting."' if not drafting_enabled else ''}>Generate Original Drafts</button>
         </form>
+        {'' if drafting_enabled else '<div class="inline-warning">Original drafting is disabled until Google drafting credentials are configured in <code>.env</code>.</div>'}
       </section>
       <section class="card span-4">
         <h2>Maintenance</h2>
@@ -908,7 +938,7 @@ def _render_dashboard(
         <div class="queue-header">
           <div>
             <h2>Reply Queue</h2>
-            <div class="section-note">Review one tweet at a time. Drafts stay attached to the tweet card, so pressing <strong>Draft Reply</strong> drops the editable reply directly underneath. {'Posting is live through the X API.' if posting_enabled else 'Posting creds are not configured, so approvals stay local and copy-ready.'}</div>
+            <div class="section-note">Review one tweet at a time. Drafts stay attached to the tweet card, so pressing <strong>Draft Reply</strong> drops the editable reply directly underneath. {'Posting is live through the X API.' if posting_enabled else 'Posting creds are not configured, so approvals stay local and copy-ready.'} {'' if drafting_enabled else 'Draft generation is disabled until Google drafting credentials are configured.'}</div>
           </div>
           <div class="queue-toolbar">
             <span class="queue-counter" data-queue-counter>{len(queue_candidates)} in queue</span>
@@ -1324,7 +1354,21 @@ def _queue_jump_button(row: sqlite3.Row) -> str:
     )
 
 
-def _candidate_card(row: sqlite3.Row, draft_text_limit: int, posting_enabled: bool) -> str:
+def _setup_status_row(label: str, ok: bool, detail: str) -> str:
+    badge_class = "badge-mini-ok" if ok else "badge-mini-warn"
+    badge_text = "Ready" if ok else "Needs Setup"
+    return (
+        '<div class="setup-item">'
+        '<div class="setup-item-head">'
+        f"<strong>{_escape(label)}</strong>"
+        f'<span class="badge-mini {badge_class}">{badge_text}</span>'
+        "</div>"
+        f"<p>{_escape(detail)}</p>"
+        "</div>"
+    )
+
+
+def _candidate_card(row: sqlite3.Row, draft_text_limit: int, posting_enabled: bool, drafting_enabled: bool) -> str:
     metrics = _metrics_text(row["raw_metrics"])
     draft_badge = ""
     if row["draft_id"]:
@@ -1352,8 +1396,8 @@ def _candidate_card(row: sqlite3.Row, draft_text_limit: int, posting_enabled: bo
         f'<a href="{row["url"]}" target="_blank">Open tweet</a>'
         '</div>'
         '</section>'
-        f"{_candidate_action_form(row)}"
-        f"{_candidate_draft_panel(row, draft_text_limit)}"
+        f"{_candidate_action_form(row, drafting_enabled)}"
+        f"{_candidate_draft_panel(row, draft_text_limit, posting_enabled, drafting_enabled)}"
         '</div>'
         '<aside class="queue-card-side">'
         '<section class="side-panel">'
@@ -1370,8 +1414,18 @@ def _candidate_card(row: sqlite3.Row, draft_text_limit: int, posting_enabled: bo
     )
 
 
-def _candidate_action_form(row: sqlite3.Row) -> str:
+def _candidate_action_form(row: sqlite3.Row, drafting_enabled: bool) -> str:
     guidance_value = _escape(str(row["draft_generation_notes"] or ""))
+    drafting_disabled_attr = (
+        ' disabled title="Set GOOGLE_CLOUD_PROJECT and GOOGLE_APPLICATION_CREDENTIALS to enable drafting."'
+        if not drafting_enabled
+        else ""
+    )
+    drafting_note = (
+        ""
+        if drafting_enabled
+        else '<div class="inline-warning">Drafting is disabled until Google drafting credentials are configured.</div>'
+    )
     return (
         '<form method="post" action="/candidate" class="candidate-form">'
         f'<input type="hidden" name="candidate_id" value="{row["id"]}">'
@@ -1379,17 +1433,23 @@ def _candidate_action_form(row: sqlite3.Row) -> str:
         f'<textarea id="candidate-guidance-{row["id"]}" name="draft_guidance" class="candidate-guidance" placeholder="What are you thinking? Add the angle, objection, or structure you want the draft to lean into.">{guidance_value}</textarea>'
         '<div class="candidate-guidance-help">This steers the next draft only. Leave it blank to let the agent choose the strongest angle from the tweet context.</div>'
         '<div class="candidate-actions">'
-        '<button class="ok" type="submit" name="action" value="draft_reply" data-busy-label="Drafting reply...">Draft Reply</button>'
-        '<button type="submit" name="action" value="draft_quote" data-busy-label="Drafting quote reply...">Draft Quote</button>'
+        f'<button class="ok" type="submit" name="action" value="draft_reply" data-busy-label="Drafting reply..."{drafting_disabled_attr}>Draft Reply</button>'
+        f'<button type="submit" name="action" value="draft_quote" data-busy-label="Drafting quote reply..."{drafting_disabled_attr}>Draft Quote</button>'
         '<button type="submit" name="action" value="watch" data-busy-label="Saving watch status...">Watch</button>'
         '<button class="bad" type="submit" name="action" value="ignore" data-busy-label="Dismissing candidate...">Dismiss</button>'
         '<button type="button" class="ghost-button" data-skip-card>Skip For Now</button>'
         '</div>'
+        f"{drafting_note}"
         '</form>'
     )
 
 
-def _candidate_draft_panel(row: sqlite3.Row, draft_text_limit: int) -> str:
+def _candidate_draft_panel(
+    row: sqlite3.Row,
+    draft_text_limit: int,
+    posting_enabled: bool,
+    drafting_enabled: bool,
+) -> str:
     if not row["draft_id"]:
         return (
             '<section class="draft-inline draft-inline-empty">'
@@ -1425,6 +1485,7 @@ def _candidate_draft_panel(row: sqlite3.Row, draft_text_limit: int) -> str:
         image_prompt=row["draft_image_prompt"],
         image_path=row["draft_image_path"],
         posting_enabled=posting_enabled,
+        drafting_enabled=drafting_enabled,
     )
     return (
         f'<section class="draft-inline" id="draft-{draft_id}">'
@@ -1439,13 +1500,19 @@ def _candidate_draft_panel(row: sqlite3.Row, draft_text_limit: int) -> str:
     )
 
 
-def _original_draft_card(row: sqlite3.Row, draft_text_limit: int, posting_enabled: bool) -> str:
+def _original_draft_card(
+    row: sqlite3.Row,
+    draft_text_limit: int,
+    posting_enabled: bool,
+    drafting_enabled: bool,
+) -> str:
     controls = _draft_action_buttons(
         draft_id=int(row["id"]),
         status=str(row["status"] or ""),
         image_prompt=row["image_prompt"],
         image_path=row["image_path"],
         posting_enabled=posting_enabled,
+        drafting_enabled=drafting_enabled,
     )
     note_bits = [
         _escape(row["draft_type"] or "original"),
@@ -1474,6 +1541,7 @@ def _draft_action_buttons(
     image_prompt: Any,
     image_path: Any,
     posting_enabled: bool,
+    drafting_enabled: bool,
 ) -> str:
     if status != "drafted":
         return ""
@@ -1496,7 +1564,18 @@ def _draft_action_buttons(
     controls.append(_post_button("/draft", "draft_id", draft_id, "action", "reject", "Reject", "bad", "Rejecting draft..."))
     if image_prompt and not image_path:
         controls.append(
-            _post_button("/draft", "draft_id", draft_id, "action", "image", "Generate Image", "", "Generating image...")
+            _post_button(
+                "/draft",
+                "draft_id",
+                draft_id,
+                "action",
+                "image",
+                "Generate Image",
+                "",
+                "Generating image...",
+                disabled=not drafting_enabled,
+                disabled_reason="Set GOOGLE_CLOUD_PROJECT and GOOGLE_APPLICATION_CREDENTIALS to enable image generation.",
+            )
         )
     controls.append("</div>")
     return "".join(controls)
@@ -1511,16 +1590,20 @@ def _post_button(
     label: str,
     css: str = "",
     busy_label: str | None = None,
+    disabled: bool = False,
+    disabled_reason: str | None = None,
 ) -> str:
     hidden_fields = [f'<input type="hidden" name="{id_key}" value="{id_value}">']
     if action_key is not None:
         hidden_fields.append(f'<input type="hidden" name="{action_key}" value="{action_value}">')
     css_class = f' class="{css}"' if css else ""
     busy_attr = f' data-busy-label="{_escape(busy_label)}"' if busy_label else ""
+    disabled_attr = " disabled" if disabled else ""
+    title_attr = f' title="{_escape(disabled_reason or "")}"' if disabled and disabled_reason else ""
     return (
         f'<form method="post" action="{path}">'
         f"{''.join(hidden_fields)}"
-        f'<button{css_class}{busy_attr} type="submit">{label}</button>'
+        f'<button{css_class}{busy_attr}{disabled_attr}{title_attr} type="submit">{label}</button>'
         "</form>"
     )
 

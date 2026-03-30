@@ -49,6 +49,7 @@ This repo takes the opposite approach: better source selection, stronger context
 - An X account you can log into locally for Playwright list access and optional home timeline access.
 
 The bootstrap script installs Python dependencies and Playwright Chromium for you. You do not need to preinstall Playwright separately.
+You do not need to fill in `.env` before running `bootstrap.ps1` or `setup.ps1`.
 
 ## Quickstart
 ```powershell
@@ -62,6 +63,8 @@ cd "X Signal Dashboard"
 - `.env`
 - the local data folders
 - the local SQLite database
+
+You can run `bootstrap.ps1` and `setup.ps1` before filling any credentials. Credentials are only needed when you actually start drafting, scraping, or posting.
 
 Then:
 

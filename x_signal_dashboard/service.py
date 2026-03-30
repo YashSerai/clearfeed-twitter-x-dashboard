@@ -44,7 +44,7 @@ class XAgentService:
             else DisabledTelegramAPI()
         )
         self.x_api = XAPI(self.config) if self.config.posting_enabled else None
-        self.drafting = DraftingEngine(self.config, self.style_packet)
+        self.drafting = DraftingEngine(self.config, self.style_packet) if self.config.drafting_enabled else None
         self.article_expander = ArticleExpander(
             char_limit=self.config.worker.article_expand_char_limit,
             storage_state_path=self.config.storage_state_path,
@@ -65,6 +65,7 @@ class XAgentService:
         with managed_connection(self.config.database_path) as conn:
             db.bootstrap(conn)
             if action == "draft_reply":
+                self._ensure_drafting_enabled()
                 draft_id = self._generate_candidate_draft(
                     conn,
                     candidate_id,
@@ -78,6 +79,7 @@ class XAgentService:
                     "anchor": f"draft-{draft_id}",
                 }
             if action == "draft_quote":
+                self._ensure_drafting_enabled()
                 draft_id = self._generate_candidate_draft(
                     conn,
                     candidate_id,
@@ -169,6 +171,7 @@ class XAgentService:
         raise ValueError(f"Unknown draft action: {action}")
 
     def create_original_drafts(self, topic: str, notify_telegram: bool = True) -> list[int]:
+        self._ensure_drafting_enabled()
         with managed_connection(self.config.database_path) as conn:
             db.bootstrap(conn)
             return self._generate_original_post_drafts(conn, topic, notify_telegram=notify_telegram)
@@ -282,7 +285,7 @@ class XAgentService:
                 ranked = sorted(scored, key=lambda item: item["heuristic_score"], reverse=True)
                 llm_input = self._build_llm_pool(ranked)
                 llm_map: dict[str, dict[str, Any]] = {}
-                if llm_input:
+                if llm_input and self.drafting is not None:
                     try:
                         decisions = self.drafting.prioritize_candidates(llm_input)
                         llm_map = {
@@ -540,6 +543,7 @@ class XAgentService:
         notify_telegram: bool = True,
         user_guidance: str | None = None,
     ) -> int:
+        self._ensure_drafting_enabled()
         candidate = db.get_candidate(conn, candidate_id)
         if not candidate:
             if notify_telegram:
@@ -658,6 +662,7 @@ class XAgentService:
         return {"status": "posted", "tweet_id": tweet_id}
 
     def _generate_draft_image(self, conn: sqlite3.Connection, draft_id: int, notify_telegram: bool = True) -> str:
+        self._ensure_drafting_enabled()
         draft = db.get_draft(conn, draft_id)
         if not draft:
             if notify_telegram:
@@ -686,6 +691,7 @@ class XAgentService:
         topic: str,
         notify_telegram: bool = True,
     ) -> list[int]:
+        self._ensure_drafting_enabled()
         source_keys = [source.key for source in self.config.sources if source.use_for_original_posts]
         existing_today = db.count_original_drafts_today(conn)
         remaining = max(self.config.worker.max_original_drafts_per_day - existing_today, 0)
@@ -734,6 +740,13 @@ class XAgentService:
                 )
                 db.set_draft_message_id(conn, draft_id, int(message["message_id"]))
         return draft_ids
+
+    def _ensure_drafting_enabled(self) -> None:
+        if self.drafting is not None:
+            return
+        raise RuntimeError(
+            "Drafting is not configured. Set GOOGLE_CLOUD_PROJECT and GOOGLE_APPLICATION_CREDENTIALS in .env."
+        )
 
     def _candidate_keyboard(self, candidate_id: int) -> dict[str, Any]:
         return inline_keyboard(

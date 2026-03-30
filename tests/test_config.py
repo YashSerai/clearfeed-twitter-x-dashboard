@@ -91,10 +91,10 @@ class ConfigTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             self._write_repo(root)
-            os.environ["GOOGLE_CLOUD_PROJECT"] = "demo-project"
             config = load_config(root)
             self.assertFalse(config.telegram_enabled)
             self.assertFalse(config.posting_enabled)
+            self.assertFalse(config.drafting_enabled)
             self.assertEqual(len(config.sources), 1)
             self.assertEqual(config.sources[0].source_weight, 1.0)
 
