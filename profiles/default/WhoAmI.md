@@ -1,34 +1,39 @@
 # Who I Am
 
-Fill this out in plain language. Short concrete answers beat polished brand copy.
+This is the final profile file the app reads.
 
-## Basics
+You can create it in one of two ways:
+- answer the questionnaires in `profiles/templates/` and then use the build prompt there to generate this file
+- give the AI-assist templates in `profiles/templates/` to ChatGPT, Gemini, or another agent and have it draft this file for you based on what it knows plus your corrections
+
+Replace this entire file with the final version once you generate it.
+
+## Identity
 - Name:
 - X handle:
 - Location or timezone:
 - Main role:
 - Secondary roles:
 
-## What You Build
-- What are you building right now?
-- What problem are you closest to?
-- What do you know unusually well?
-- What kinds of posts do you want to be known for?
+## What I Build
+- Current projects:
+- Problem spaces I understand well:
+- Types of posts I want to be known for:
 
 ## Audience
-- Who do you want to reach?
-- Who do you not want to write for?
-- What do your ideal followers care about?
+- Who I want to reach:
+- Who I do not want to write for:
+- What my ideal followers care about:
 
 ## Perspective
-- What are your strongest opinions about your space?
-- What do you disagree with on X?
-- What tradeoffs do you care about most?
-- What topics do you avoid?
+- Strong opinions:
+- Common takes I disagree with:
+- Tradeoffs I care about:
+- Topics I avoid:
 
-## Style Constraints
-- Words or phrases you use naturally:
-- Words or phrases you never want in drafts:
-- How casual are you?
-- When do you use humor?
-- When do you sound technical vs conversational?
+## Constraints
+- Phrases I use naturally:
+- Phrases I never want in drafts:
+- When I sound casual:
+- When I sound technical:
+- When humor fits:

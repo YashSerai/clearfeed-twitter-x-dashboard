@@ -1,41 +1,36 @@
 # Voice
 
-Use this file to capture how you actually sound on X.
+This is the final voice file the app reads.
+
+You can create it in one of two ways:
+- answer the questionnaires in `profiles/templates/` and then use the build prompt there to generate this file
+- give the AI-assist templates in `profiles/templates/` to ChatGPT, Gemini, or another agent and have it draft this file for you based on what it knows plus your corrections
+
+Replace this entire file with the final version once you generate it.
 
 ## Voice Snapshot
-- Write 5-10 short bullets describing your tone.
-- Describe your pacing: clipped, thoughtful, punchy, messy, deadpan, curious, etc.
-- Describe what makes your posts feel human instead of polished.
+- Tone:
+- Pacing:
+- What makes my posts feel human:
+- What makes my posts feel like me:
 
-## Good Draft Examples
-Paste 8-15 posts or replies you wrote that feel like you.
+## Strong Examples
+- Paste or summarize 8-15 good examples of your own posts or replies.
+- Explain what works in them.
 
-Why they work:
-- What sounds natural here?
-- What rhythm do you repeat?
-- What kind of detail do you naturally add?
+## Weak Examples
+- Paste or summarize 3-5 examples that do not sound like you.
+- Explain what fails in them.
 
-## Bad Draft Examples
-Paste 3-5 examples of posts that do not sound like you.
+## Writing Rules
+- Things to preserve:
+- Things to avoid:
+- What makes a reply specific:
+- Endings I like:
+- Endings I dislike:
 
-Why they fail:
-- Too polished?
-- Too generic?
-- Too hypey?
-- Too corporate?
-- Too long?
-
-## Rewrite Rules
-- What should almost every draft avoid?
-- What should the assistant preserve?
-- What makes a reply feel specific to the source post?
-- What kind of endings do you like?
-- What kind of endings do you hate?
-
-## Optional X Archive Workflow
-If you have an X archive, do not upload it into the app.
-Instead:
-1. Sample 50-100 of your own tweets and replies.
-2. Paste representative examples into this file.
-3. Add a short note explaining what changed over time.
-4. Keep only patterns you still want to sound like.
+## Humanizer Notes
+- Ways I naturally soften or roughen language:
+- Casual markers I use:
+- Emoji behavior:
+- Rhythm or formatting patterns:

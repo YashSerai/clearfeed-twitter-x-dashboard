@@ -16,6 +16,7 @@ This repo takes the opposite approach: better source selection, stronger context
 - Optional home timeline scraping as an extra signal source.
 - Local dashboard for ranking, reviewing, and drafting.
 - Voice-aware drafting using your own `WhoAmI.md`, `Voice.md`, and `Humanizer.md`.
+- AI-assisted profile setup with questionnaire templates and prompt packs.
 - Editable drafts so you can replace or steer the AI instead of accepting whatever it generated.
 - Local-first approvals by default.
 - Optional Telegram mirroring.
@@ -69,8 +70,8 @@ You can run `bootstrap.ps1` and `setup.ps1` before filling any credentials. Cred
 Then:
 
 1. Fill in `.env`.
-2. Fill in `profiles/default/WhoAmI.md`.
-3. Fill in `profiles/default/Voice.md`.
+2. Build `profiles/default/WhoAmI.md`.
+3. Build `profiles/default/Voice.md`.
 4. Add your feed URLs and weights in `.env` or `data/sources/x_sources.yaml`.
 5. Optionally set `HOME_TIMELINE_ENABLED=true`.
 6. Save a logged-in X session:
@@ -108,13 +109,29 @@ This repo uses three local files as the voice packet:
 - `profiles/default/Voice.md`
 - `profiles/default/Humanizer.md`
 
-Use them to define:
-- who you are
-- what you care about
-- how you naturally sound on X
-- what good and bad drafts look like
+There are two setup paths:
 
-If you have an X archive, use it only as reference material while filling `Voice.md`. Public v1 does not ingest archives directly.
+### Option 1: AI-Assisted Fill
+Use these files:
+- `profiles/templates/WhoAmI.Questionnaire.md`
+- `profiles/templates/Voice.Questionnaire.md`
+- `profiles/templates/AI-Assisted-Profile-Fill.md`
+
+Give the AI-assisted prompt to ChatGPT, Gemini, or another agent and have it fill the questionnaires based on what it already knows about you plus anything you correct.
+
+### Option 2: Manual Answers -> AI Build
+Use these files:
+- `profiles/templates/WhoAmI.Questionnaire.md`
+- `profiles/templates/Voice.Questionnaire.md`
+- `profiles/templates/Build-Final-Profile-Prompt.md`
+
+Answer the questionnaires yourself, then paste those answers into the build prompt and ask an AI agent to generate the final contents for:
+- `profiles/default/WhoAmI.md`
+- `profiles/default/Voice.md`
+
+This gives users a much better starting point than writing voice docs from scratch.
+
+If you have an X archive, use it only as reference material while answering the voice questionnaire. Public v1 does not ingest archives directly.
 
 ## Posting And Approval Modes
 - No X API credentials: drafts can still be reviewed and approved locally, but posting stays manual.
@@ -133,6 +150,7 @@ If you have an X archive, use it only as reference material while filling `Voice
 - `x_signal_dashboard/` application code
 - `scripts/` bootstrap and runtime commands
 - `profiles/default/` voice templates
+- `profiles/templates/` questionnaire and AI prompt templates
 - `data/sources/x_sources.yaml` feed config
 - `docs/launch-checklist.md` release checklist
 
