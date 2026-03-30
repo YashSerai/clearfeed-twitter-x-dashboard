@@ -1,0 +1,153 @@
+# X Signal Dashboard
+
+Local high-signal X dashboard for builders who want better discovery and faster drafting without turning their account into AI slop.
+
+X Signal Dashboard monitors your weighted X Lists and, if you enable it, your home timeline. It ranks the strongest posts, drafts replies in your voice, lets you edit or replace those drafts, and keeps the final approval with a human.
+
+## Why This Exists
+- Most feeds are noisy.
+- Most drafting tools are generic.
+- Most "growth bots" optimize for volume instead of judgment.
+
+This repo takes the opposite approach: better source selection, stronger context, and a human-in-the-loop workflow.
+
+## Feature Highlights
+- Weighted discovery across multiple X Lists.
+- Optional home timeline scraping as an extra signal source.
+- Local dashboard for ranking, reviewing, and drafting.
+- Voice-aware drafting using your own `WhoAmI.md`, `Voice.md`, and `Humanizer.md`.
+- Editable drafts so you can replace or steer the AI instead of accepting whatever it generated.
+- Local-first approvals by default.
+- Optional Telegram mirroring.
+- Optional direct posting through the official X API.
+
+## How It Works
+1. You choose the feeds that matter: list 1, list 2, list 3, and optional home timeline.
+2. Each source gets its own weight.
+3. The worker scrapes recent posts, scores them, and pushes the best candidates into the local dashboard.
+4. You draft a reply, quote reply, or original post in your own voice.
+5. You edit, approve, or mark it as manually posted.
+6. If posting credentials are configured, the app can post through the X API. If not, the draft stays local and copy-ready.
+
+## Who This Is For
+- Builders who actively post on X.
+- Founders who want a cleaner signal feed than the default timeline.
+- Operators who want AI to help with drafting, not replace judgment.
+
+## What It Does Not Do
+- It does not scrape mentions in public v1.
+- It does not post by scripting the X website.
+- It does not parse X archives automatically.
+- It does not run as a cloud SaaS.
+- It does not try to be an unattended engagement bot.
+
+## Requirements
+- Windows with PowerShell.
+- Git.
+- Python 3 with `venv` support available as `py` or `python`.
+- A Google Cloud project and application credentials for Vertex/Gemini drafting.
+- An X account you can log into locally for Playwright list access and optional home timeline access.
+
+The bootstrap script installs Python dependencies and Playwright Chromium for you. You do not need to preinstall Playwright separately.
+
+## Quickstart
+```powershell
+git clone <your-repo-url> "X Signal Dashboard"
+cd "X Signal Dashboard"
+.\scripts\bootstrap.ps1
+.\scripts\setup.ps1
+```
+
+`setup.ps1` creates:
+- `.env`
+- the local data folders
+- the local SQLite database
+
+Then:
+
+1. Fill in `.env`.
+2. Fill in `profiles/default/WhoAmI.md`.
+3. Fill in `profiles/default/Voice.md`.
+4. Add your feed URLs and weights in `.env` or `data/sources/x_sources.yaml`.
+5. Optionally set `HOME_TIMELINE_ENABLED=true`.
+6. Save a logged-in X session:
+
+```powershell
+.\scripts\capture-x-session.ps1
+```
+
+7. Start the dashboard:
+
+```powershell
+.\scripts\run-dashboard.ps1
+```
+
+8. In a second terminal, start the worker:
+
+```powershell
+.\scripts\run-worker.ps1
+```
+
+## Source Configuration
+The starter config supports three weighted list sources plus an optional home timeline source.
+
+Env-based setup:
+- `LIST_1_URL`, `LIST_1_WEIGHT`
+- `LIST_2_URL`, `LIST_2_WEIGHT`
+- `LIST_3_URL`, `LIST_3_WEIGHT`
+- `HOME_TIMELINE_ENABLED`, `HOME_TIMELINE_WEIGHT`
+
+You can also edit [`data/sources/x_sources.yaml`](data/sources/x_sources.yaml) directly if you want more feeds, different labels, or different source behavior.
+
+## Voice Setup
+This repo uses three local files as the voice packet:
+- `profiles/default/WhoAmI.md`
+- `profiles/default/Voice.md`
+- `profiles/default/Humanizer.md`
+
+Use them to define:
+- who you are
+- what you care about
+- how you naturally sound on X
+- what good and bad drafts look like
+
+If you have an X archive, use it only as reference material while filling `Voice.md`. Public v1 does not ingest archives directly.
+
+## Posting And Approval Modes
+- No X API credentials: drafts can still be reviewed and approved locally, but posting stays manual.
+- X API credentials configured: the app can post through the official X API.
+- Telegram credentials configured: Telegram can mirror approvals, but the dashboard remains the default workflow.
+
+## Troubleshooting
+- `Missing required profile file(s)`: run `.\scripts\setup.ps1` and fill the files in `profiles/default/`.
+- `Missing Playwright session state`: run `.\scripts\capture-x-session.ps1` after logging into X.
+- Dashboard opens but nothing appears: make sure at least one list URL is set, or enable home timeline discovery.
+- Approve button does not post: this is expected if X API credentials are not configured.
+- Telegram actions do nothing: Telegram is optional and remains disabled until `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` are configured.
+- Vertex auth failures: verify `GOOGLE_CLOUD_PROJECT` and `GOOGLE_APPLICATION_CREDENTIALS`, then confirm the account has access to the configured models.
+
+## Repo Layout
+- `x_signal_dashboard/` application code
+- `scripts/` bootstrap and runtime commands
+- `profiles/default/` voice templates
+- `data/sources/x_sources.yaml` feed config
+- `docs/launch-checklist.md` release checklist
+
+## Contributing
+If you want to improve the source ranking, dashboard UX, or onboarding flow, open an issue first with:
+- the problem you hit
+- the behavior you expected
+- the smallest change that would improve it
+
+## Limitations And Compliance
+- This project uses Playwright for local discovery. You are responsible for complying with X rules, your account setup, and any applicable platform restrictions.
+- Home timeline scraping is optional and disabled by default.
+- Posting uses the official X API only.
+- This project is designed for human-assisted workflows, not unattended automation.
+
+## Before You Publish
+- Add sanitized dashboard screenshots or a short GIF.
+- Replace `<your-repo-url>` in the quickstart with the actual repo URL.
+- Test the quickstart on a clean Windows machine or VM.
+- Test local-only approval.
+- Test direct posting with X API credentials.

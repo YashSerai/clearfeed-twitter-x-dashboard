@@ -1,0 +1,21 @@
+style:
+  files:
+    - profiles/default/WhoAmI.md
+    - profiles/default/Voice.md
+    - profiles/default/Humanizer.md
+worker:
+  min_delay_minutes: 30
+  max_delay_minutes: 30
+  max_candidates_per_cycle: 6
+  candidate_overlap_minutes: 60
+  max_reply_age_minutes: 60
+  article_expand_char_limit: 12000
+  scrape_timeout_ms: 45000
+  recent_signals_limit: 30
+  original_post_options: 1
+  max_original_drafts_per_day: 3
+  default_image_mode: suggest_only
+  homepage_scrape_limit: 60
+  homepage_llm_pool_size: 24
+  homepage_max_alerts_per_cycle: 2
+  author_signal_lookback_hours: 72
