@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from . import db
+from .archive_voice import import_archive
 from .article_expander import ArticleExpander
 from .config import AppConfig, load_config
 from .db import managed_connection
@@ -179,11 +180,149 @@ class XAgentService:
             db.bootstrap(conn)
             return self._generate_original_post_drafts(conn, topic, notify_telegram=notify_telegram)
 
+    def import_x_archive(self, archive_dir: str) -> dict[str, Any]:
+        archive_path, items, summary_text = import_archive(Path(archive_dir))
+        summary_output = self.config.root / "profiles" / "generated" / "ARCHIVE_VOICE.md"
+        summary_output.parent.mkdir(parents=True, exist_ok=True)
+        summary_output.write_text(summary_text, encoding="utf-8")
+        with managed_connection(self.config.database_path) as conn:
+            db.bootstrap(conn)
+            import_id = db.create_archive_import(conn, str(archive_path), archive_path.name, len(items))
+            db.insert_archive_items(conn, import_id, items)
+            db.create_archive_voice_summary(
+                conn,
+                import_id=import_id,
+                summary_text=summary_text,
+                summary_path=str(summary_output),
+                item_count=len(items),
+            )
+            db.record_event(conn, "archive_import", import_id, "imported", {"item_count": len(items), "path": str(archive_path)})
+        return {
+            "message": f"Imported {len(items)} archive items from {archive_path.name}.",
+            "import_id": import_id,
+            "item_count": len(items),
+            "summary_path": str(summary_output),
+        }
+
+    def maybe_run_archive_voice_build(self) -> dict[str, Any]:
+        self._ensure_drafting_enabled()
+        with managed_connection(self.config.database_path) as conn:
+            db.bootstrap(conn)
+            pending = db.get_latest_voice_review_proposal(conn, status="pending", proposal_type="archive")
+            if pending:
+                return {
+                    "status": "pending",
+                    "message": f"Archive voice proposal #{pending['id']} is still waiting for approval.",
+                    "proposal_id": int(pending["id"]),
+                }
+            latest_import = db.get_latest_archive_import(conn)
+            if not latest_import:
+                return {"status": "missing", "message": "Import an X archive before building archive voice."}
+            latest_summary = db.get_latest_archive_voice_summary(conn, import_id=int(latest_import["id"]))
+            if not latest_summary:
+                return {"status": "missing", "message": "No archive summary found for the latest import."}
+
+            preview_rows = db.list_archive_items_preview(conn, int(latest_import["id"]), limit=18)
+            archive_examples = [{"kind": str(row["item_kind"]), "text": str(row["text"])} for row in preview_rows]
+            current_voice = self._voice_file_path().read_text(encoding="utf-8")
+            proposed = self.drafting.propose_archive_voice_update(
+                whoami_text=self._whoami_file_path().read_text(encoding="utf-8"),
+                voice_text=current_voice,
+                humanizer_text=self._humanizer_file_path().read_text(encoding="utf-8"),
+                archive_summary_text=str(latest_summary["summary_text"]),
+                archive_examples=archive_examples,
+            )
+            proposal_text = self._preserve_voice_guardrails(
+                current_voice=current_voice,
+                proposed_voice=proposed["proposed_voice_md"],
+            )
+            if proposal_text.strip() == current_voice.strip():
+                return {"status": "no_change", "message": "Archive voice build found no meaningful Voice.md update."}
+
+            diff_text = "\n".join(
+                difflib.unified_diff(
+                    current_voice.splitlines(),
+                    proposal_text.splitlines(),
+                    fromfile="profiles/default/Voice.md",
+                    tofile="profiles/proposals/Voice.archive.proposed.md",
+                    lineterm="",
+                )
+            )
+            proposal_id = db.create_voice_review_proposal(
+                conn,
+                summary_text=proposed["summary_text"] or "Archive import generated a new Voice.md proposal.",
+                proposal_text=proposal_text,
+                diff_text=diff_text,
+                sample_count=int(latest_summary["item_count"]),
+                reviewed_until_event_id=0,
+                proposal_type="archive",
+                source_import_id=int(latest_import["id"]),
+            )
+            db.record_event(conn, "voice_review", proposal_id, "archive_proposal_created", {"import_id": int(latest_import["id"])})
+            return {
+                "status": "created",
+                "message": f"Created archive voice proposal #{proposal_id}.",
+                "proposal_id": proposal_id,
+            }
+
+    def archive_voice_status(self) -> dict[str, Any]:
+        with managed_connection(self.config.database_path) as conn:
+            db.bootstrap(conn)
+            latest_import = db.get_latest_archive_import(conn)
+            latest_summary = db.get_latest_archive_voice_summary(conn, import_id=int(latest_import["id"])) if latest_import else None
+            pending = db.get_latest_voice_review_proposal(conn, status="pending", proposal_type="archive")
+            latest = db.get_latest_voice_review_proposal(conn, proposal_type="archive")
+            return {
+                "latest_import": (
+                    {
+                        "id": int(latest_import["id"]),
+                        "archive_name": str(latest_import["archive_name"]),
+                        "archive_path": str(latest_import["archive_path"]),
+                        "item_count": int(latest_import["item_count"]),
+                        "imported_at": str(latest_import["imported_at"]),
+                    }
+                    if latest_import
+                    else None
+                ),
+                "latest_summary": (
+                    {
+                        "id": int(latest_summary["id"]),
+                        "summary_text": str(latest_summary["summary_text"]),
+                        "summary_path": str(latest_summary["summary_path"] or ""),
+                        "item_count": int(latest_summary["item_count"]),
+                        "created_at": str(latest_summary["created_at"]),
+                    }
+                    if latest_summary
+                    else None
+                ),
+                "pending": (
+                    {
+                        "id": int(pending["id"]),
+                        "summary_text": str(pending["summary_text"]),
+                        "diff_text": str(pending["diff_text"]),
+                        "sample_count": int(pending["sample_count"]),
+                        "created_at": str(pending["created_at"]),
+                    }
+                    if pending
+                    else None
+                ),
+                "latest": (
+                    {
+                        "id": int(latest["id"]),
+                        "status": str(latest["status"]),
+                        "created_at": str(latest["created_at"]),
+                        "reviewed_at": str(latest["reviewed_at"] or ""),
+                    }
+                    if latest
+                    else None
+                ),
+            }
+
     def maybe_run_voice_review(self, force: bool = False) -> dict[str, Any]:
         self._ensure_drafting_enabled()
         with managed_connection(self.config.database_path) as conn:
             db.bootstrap(conn)
-            pending = db.get_latest_voice_review_proposal(conn, status="pending")
+            pending = db.get_latest_voice_review_proposal(conn, status="pending", proposal_type="learning")
             if pending:
                 return {
                     "status": "pending",
@@ -191,7 +330,7 @@ class XAgentService:
                     "proposal_id": int(pending["id"]),
                 }
 
-            latest = db.get_latest_voice_review_proposal(conn)
+            latest = db.get_latest_voice_review_proposal(conn, proposal_type="learning")
             reviewed_until_event_id = int(latest["reviewed_until_event_id"]) if latest else 0
             last_review_at = _parse_runtime_datetime(str(latest["created_at"])) if latest and latest["created_at"] else None
 
@@ -269,6 +408,7 @@ class XAgentService:
                 diff_text=diff_text,
                 sample_count=len(learning_events),
                 reviewed_until_event_id=max(int(row["id"]) for row in learning_rows),
+                proposal_type="learning",
             )
             db.record_event(conn, "voice_review", proposal_id, "proposal_created", {"sample_count": len(learning_events)})
             return {
@@ -278,11 +418,25 @@ class XAgentService:
             }
 
     def approve_voice_review(self, proposal_id: int) -> dict[str, Any]:
+        return self._apply_voice_proposal(proposal_id, expected_type="learning")
+
+    def approve_archive_voice_proposal(self, proposal_id: int) -> dict[str, Any]:
+        return self._apply_voice_proposal(proposal_id, expected_type="archive")
+
+    def reject_voice_review(self, proposal_id: int) -> dict[str, Any]:
+        return self._reject_voice_proposal(proposal_id, expected_type="learning")
+
+    def reject_archive_voice_proposal(self, proposal_id: int) -> dict[str, Any]:
+        return self._reject_voice_proposal(proposal_id, expected_type="archive")
+
+    def _apply_voice_proposal(self, proposal_id: int, expected_type: str) -> dict[str, Any]:
         with managed_connection(self.config.database_path) as conn:
             db.bootstrap(conn)
             proposal = conn.execute("SELECT * FROM voice_review_proposals WHERE id = ?", (proposal_id,)).fetchone()
             if not proposal:
                 raise RuntimeError(f"Voice review proposal {proposal_id} not found.")
+            if str(proposal["proposal_type"]) != expected_type:
+                raise RuntimeError(f"Proposal #{proposal_id} is not a {expected_type} proposal.")
             if str(proposal["status"]) != "pending":
                 raise RuntimeError(f"Voice review proposal #{proposal_id} is already {proposal['status']}.")
 
@@ -296,25 +450,29 @@ class XAgentService:
 
             db.set_voice_review_proposal_status(conn, proposal_id, "approved", review_notes=f"Backup: {backup_path.name}")
             db.record_event(conn, "voice_review", proposal_id, "proposal_approved", {"backup_path": str(backup_path)})
-            return {"message": f"Applied voice review proposal #{proposal_id}.", "backup_path": str(backup_path)}
+            proposal_label = "archive voice proposal" if expected_type == "archive" else "voice review proposal"
+            return {"message": f"Applied {proposal_label} #{proposal_id}.", "backup_path": str(backup_path)}
 
-    def reject_voice_review(self, proposal_id: int) -> dict[str, Any]:
+    def _reject_voice_proposal(self, proposal_id: int, expected_type: str) -> dict[str, Any]:
         with managed_connection(self.config.database_path) as conn:
             db.bootstrap(conn)
             proposal = conn.execute("SELECT * FROM voice_review_proposals WHERE id = ?", (proposal_id,)).fetchone()
             if not proposal:
                 raise RuntimeError(f"Voice review proposal {proposal_id} not found.")
+            if str(proposal["proposal_type"]) != expected_type:
+                raise RuntimeError(f"Proposal #{proposal_id} is not a {expected_type} proposal.")
             if str(proposal["status"]) != "pending":
                 raise RuntimeError(f"Voice review proposal #{proposal_id} is already {proposal['status']}.")
             db.set_voice_review_proposal_status(conn, proposal_id, "rejected")
             db.record_event(conn, "voice_review", proposal_id, "proposal_rejected", {})
-            return {"message": f"Rejected voice review proposal #{proposal_id}."}
+            proposal_label = "archive voice proposal" if expected_type == "archive" else "voice review proposal"
+            return {"message": f"Rejected {proposal_label} #{proposal_id}."}
 
     def voice_review_status(self) -> dict[str, Any]:
         with managed_connection(self.config.database_path) as conn:
             db.bootstrap(conn)
-            pending = db.get_latest_voice_review_proposal(conn, status="pending")
-            latest = db.get_latest_voice_review_proposal(conn)
+            pending = db.get_latest_voice_review_proposal(conn, status="pending", proposal_type="learning")
+            latest = db.get_latest_voice_review_proposal(conn, proposal_type="learning")
             reviewed_until = int(latest["reviewed_until_event_id"]) if latest else 0
             return {
                 "enabled": bool(self.config.worker.voice_review_enabled),
@@ -375,6 +533,9 @@ class XAgentService:
                     conn.execute("DELETE FROM telegram_state")
                     conn.execute("DELETE FROM voice_learning_events")
                     conn.execute("DELETE FROM voice_review_proposals")
+                    conn.execute("DELETE FROM archive_voice_summaries")
+                    conn.execute("DELETE FROM archive_posts")
+                    conn.execute("DELETE FROM archive_imports")
                 last_exc = None
                 break
             except sqlite3.OperationalError as exc:
@@ -752,7 +913,7 @@ class XAgentService:
         except Exception as exc:
             db.record_event(conn, "candidate", candidate_id, "tweet_context_error", {"error": str(exc)})
         image_context = None
-        if media_urls:
+        if media_urls and self.drafting.supports_vision():
             try:
                 image_paths = self._download_tweet_media(candidate["tweet_id"], media_urls)
                 if image_paths:
@@ -781,7 +942,7 @@ class XAgentService:
             draft_type=draft.draft_type,
             draft_text=draft.text,
             rationale="\n\n".join(part for part in [draft.rationale, stale_note] if part),
-            model_name=self.config.gemini_text_model,
+            model_name=self.config.ai_text_model,
             image_prompt=draft.image_prompt,
             image_reason=draft.image_reason,
             generation_notes=normalized_guidance,
@@ -857,7 +1018,7 @@ class XAgentService:
                 self.telegram.send_message("This draft does not have an image suggestion.")
             raise RuntimeError(f"Draft {draft_id} has no image prompt")
         output_path = self.config.root / "data" / "generated" / f"draft_{draft_id}.png"
-        self.drafting.vertex.generate_image(self.config.gemini_image_model, draft["image_prompt"], output_path)
+        self.drafting.generate_image(str(draft["image_prompt"]), output_path)
         db.update_draft_image(conn, draft_id, str(output_path))
         db.record_event(conn, "draft", draft_id, "image_generated", {"path": str(output_path)})
         if notify_telegram and self.config.telegram_enabled:
@@ -912,7 +1073,7 @@ class XAgentService:
                 draft_type="original",
                 draft_text=draft.text,
                 rationale=draft.rationale,
-                model_name=self.config.gemini_polish_model,
+                model_name=self.config.ai_polish_model,
                 image_prompt=draft.image_prompt,
                 image_reason=draft.image_reason,
             )
@@ -929,7 +1090,7 @@ class XAgentService:
         if self.drafting is not None:
             return
         raise RuntimeError(
-            "Drafting is not configured. Set GOOGLE_CLOUD_PROJECT and GOOGLE_APPLICATION_CREDENTIALS in .env."
+            "Drafting is not configured. Run scripts/setup.ps1 and fill the selected AI provider settings in .env."
         )
 
     def _candidate_keyboard(self, candidate_id: int) -> dict[str, Any]:
@@ -944,7 +1105,7 @@ class XAgentService:
         approve_label = "Post Now" if self.config.posting_enabled else "Approve Draft"
         rows: list[list[tuple[str, str]]] = [[(approve_label, f"d:ap:{draft_id}"), ("Mark Posted", f"d:mp:{draft_id}")]]
         rows.append([("Reject", f"d:rj:{draft_id}")])
-        if has_image_prompt:
+        if has_image_prompt and self.config.image_generation_enabled:
             rows.append([("Generate Image", f"d:im:{draft_id}")])
         return inline_keyboard(rows)
 

@@ -38,6 +38,7 @@ def run_dashboard(host: str = "127.0.0.1", port: int = 8787) -> None:
             flash = parse_qs(parsed.query).get("flash", [""])[0]
             error = parse_qs(parsed.query).get("error", [""])[0]
             status = _read_status(runtime_path, persisted_next_run_at=service._load_worker_next_run_at())
+            archive_voice = service.archive_voice_status()
             voice_review = service.voice_review_status()
             page = _render_dashboard(
                 root,
@@ -45,6 +46,7 @@ def run_dashboard(host: str = "127.0.0.1", port: int = 8787) -> None:
                 status,
                 draft_text_limit,
                 setup_status=service.config.setup_status(),
+                archive_voice=archive_voice,
                 voice_review=voice_review,
                 drafting_enabled=service.config.drafting_enabled,
                 worker_ready=service.config.session_ready and service.config.sources_ready,
@@ -125,6 +127,26 @@ def run_dashboard(host: str = "127.0.0.1", port: int = 8787) -> None:
                         result = service.reject_voice_review(proposal_id)
                         self._redirect(result["message"], anchor="voice-review")
                         return
+                if parsed.path == "/archive":
+                    action = form["action"][0]
+                    if action == "import":
+                        archive_dir = form.get("archive_dir", [""])[0]
+                        result = service.import_x_archive(archive_dir)
+                        self._redirect(result["message"], anchor="archive-voice")
+                        return
+                    if action == "run":
+                        result = service.maybe_run_archive_voice_build()
+                        self._redirect(result["message"], anchor="archive-voice")
+                        return
+                    proposal_id = int(form["proposal_id"][0])
+                    if action == "approve":
+                        result = service.approve_archive_voice_proposal(proposal_id)
+                        self._redirect(result["message"], anchor="archive-voice")
+                        return
+                    if action == "reject":
+                        result = service.reject_archive_voice_proposal(proposal_id)
+                        self._redirect(result["message"], anchor="archive-voice")
+                        return
                 self._redirect("Unknown action.", error=True)
             except Exception as exc:
                 self._redirect(str(exc), error=True)
@@ -198,6 +220,7 @@ def _render_dashboard(
     status: dict[str, Any],
     draft_text_limit: int,
     setup_status: dict[str, dict[str, str | bool]],
+    archive_voice: dict[str, Any],
     voice_review: dict[str, Any],
     drafting_enabled: bool,
     worker_ready: bool,
@@ -305,11 +328,25 @@ def _render_dashboard(
         for row in latest_runs
     )
     queue_cards_html = "".join(
-        _candidate_card(row, draft_text_limit, posting_enabled, drafting_enabled) for row in queue_candidates
+        _candidate_card(
+            row,
+            draft_text_limit,
+            posting_enabled,
+            drafting_enabled,
+            bool(setup_status.get("image_generation", {}).get("ok", False)),
+        )
+        for row in queue_candidates
     )
     queue_nav_html = "".join(_queue_jump_button(row) for row in queue_candidates)
     original_drafts_html = "".join(
-        _original_draft_card(row, draft_text_limit, posting_enabled, drafting_enabled) for row in latest_original_drafts
+        _original_draft_card(
+            row,
+            draft_text_limit,
+            posting_enabled,
+            drafting_enabled,
+            bool(setup_status.get("image_generation", {}).get("ok", False)),
+        )
+        for row in latest_original_drafts
     )
     flash_html = (
         f'<div class="notice ok" data-notice="flash"><span>{_escape(flash)}</span><button type="button" class="notice-close" data-dismiss-notice aria-label="Dismiss notice">Dismiss</button></div>'
@@ -341,6 +378,7 @@ def _render_dashboard(
     setup_html = "".join(
         _setup_status_row(str(item["label"]), bool(item["ok"]), str(item["detail"])) for item in setup_status.values()
     )
+    archive_voice_html = _archive_voice_card(archive_voice=archive_voice, drafting_enabled=drafting_enabled)
     voice_review_html = _voice_review_card(voice_review=voice_review, drafting_enabled=drafting_enabled)
 
     return f"""<!doctype html>
@@ -1258,6 +1296,11 @@ def _render_dashboard(
         <h2>Setup Status</h2>
         <div class="setup-grid">{setup_html}</div>
       </section>
+      <section class="card span-12" id="archive-voice">
+        <h2>Archive Voice</h2>
+        <div class="section-note">Import your unzipped X archive to bootstrap a stronger voice profile from real authored posts. The archive summary stays local and proposals still require review before they touch <code>Voice.md</code>.</div>
+        {archive_voice_html}
+      </section>
       <section class="card span-12" id="voice-review">
         <h2>Voice Review</h2>
         <div class="section-note">The app learns from drafts you approve, reject, and edit in the dashboard. It proposes reviewed updates to <code>Voice.md</code> over time. <code>Humanizer.md</code> stays fixed.</div>
@@ -1268,9 +1311,9 @@ def _render_dashboard(
         <div class="section-note">Use this for standalone posts that are not tied to a tweet in the reply queue.</div>
         <form method="post" action="/original" class="original-draft-form">
           <textarea name="topic" class="original-topic-input" placeholder="Optional topic, angle, or context for the post. Example: new OpenAI parameter changes and why they matter for builders."></textarea>
-          <button class="ok" type="submit" data-busy-label="Generating original drafts..."{' disabled title="Set GOOGLE_CLOUD_PROJECT and GOOGLE_APPLICATION_CREDENTIALS to enable original drafting."' if not drafting_enabled else ''}>Generate Original Drafts</button>
+          <button class="ok" type="submit" data-busy-label="Generating original drafts..."{' disabled title="Configure the selected AI provider in .env to enable original drafting."' if not drafting_enabled else ''}>Generate Original Drafts</button>
         </form>
-        {'' if drafting_enabled else '<div class="inline-warning">Original drafting is disabled until Google drafting credentials are configured in <code>.env</code>.</div>'}
+        {'' if drafting_enabled else '<div class="inline-warning">Original drafting is disabled until the selected AI provider is configured in <code>.env</code>.</div>'}
       </section>
       <section class="card span-4">
         <h2>Worker Flow</h2>
@@ -1287,12 +1330,12 @@ def _render_dashboard(
       </section>
       <section class="card span-4">
         <h2>Reset History</h2>
-        <div class="section-note">Clears local queue, drafts, approvals, and voice-review history. Keeps your <code>.env</code>, sources, and profile files.</div>
+        <div class="section-note">Clears local queue, drafts, approvals, archive summaries, and voice proposal history. Keeps your <code>.env</code>, sources, and profile files.</div>
         <div class="reset-grid">
           <div class="reset-item"><strong>Queue</strong><small>Clears candidate review state.</small></div>
           <div class="reset-item"><strong>Drafts</strong><small>Removes saved reply and original drafts.</small></div>
           <div class="reset-item"><strong>Approvals</strong><small>Resets local approval and posting history.</small></div>
-          <div class="reset-item"><strong>Voice Review</strong><small>Removes proposal history and learning events.</small></div>
+          <div class="reset-item"><strong>Voice Data</strong><small>Removes archive imports, proposals, and learning events.</small></div>
         </div>
         <form method="post" action="/reset" onsubmit="return confirm('Reset local state and clear tracked drafts, candidates, and optional Telegram message references?');">
           <button class="bad" type="submit" data-busy-label="Resetting local state...">Clear History</button>
@@ -1302,7 +1345,7 @@ def _render_dashboard(
         <div class="queue-header">
           <div>
             <h2>Reply Queue</h2>
-            <div class="section-note">Work through one candidate at a time. Each tweet keeps its draft, edit box, and approval actions attached so you can review without losing context. Edit drafts here before approving if you want voice review to learn from your changes. {'Posting is live through the X API.' if posting_enabled else 'Posting creds are not configured, so approvals stay local and copy-ready.'} {'' if drafting_enabled else 'Draft generation is disabled until Google drafting credentials are configured.'}</div>
+            <div class="section-note">Work through one candidate at a time. Each tweet keeps its draft, edit box, and approval actions attached so you can review without losing context. Edit drafts here before approving if you want voice review to learn from your changes. {'Posting is live through the X API.' if posting_enabled else 'Posting creds are not configured, so approvals stay local and copy-ready.'} {'' if drafting_enabled else 'Draft generation is disabled until the selected AI provider is configured.'}</div>
           </div>
           <div class="queue-toolbar">
             <span class="queue-counter" data-queue-counter>{len(queue_candidates)} in queue</span>
@@ -1841,7 +1884,7 @@ def _voice_review_card(voice_review: dict[str, Any], drafting_enabled: bool) -> 
         "ok",
         "Running voice review...",
         disabled=not drafting_enabled,
-        disabled_reason="Set Google drafting credentials before running voice review.",
+        disabled_reason="Configure the selected AI provider before running voice review.",
     )
 
     if not pending:
@@ -1913,6 +1956,113 @@ def _voice_review_card(voice_review: dict[str, Any], drafting_enabled: bool) -> 
     )
 
 
+def _archive_voice_card(archive_voice: dict[str, Any], drafting_enabled: bool) -> str:
+    latest_import = archive_voice.get("latest_import") or {}
+    latest_summary = archive_voice.get("latest_summary") or {}
+    latest = archive_voice.get("latest") or {}
+    pending = archive_voice.get("pending") or {}
+
+    import_meta = []
+    if latest_import:
+        import_meta.append(
+            '<span class="voice-review-pill">'
+            f'<strong>{_escape(str(latest_import.get("item_count") or 0))}</strong>'
+            '<span>Archive items imported</span>'
+            "</span>"
+        )
+        import_meta.append(
+            '<span class="voice-review-pill">'
+            f'<strong>{_escape(str(latest_import.get("archive_name") or ""))}</strong>'
+            '<span>Latest archive</span>'
+            "</span>"
+        )
+    if latest:
+        import_meta.append(
+            '<span class="voice-review-pill">'
+            f'<strong>{_escape(str(latest.get("status") or "unknown"))}</strong>'
+            '<span>Last archive proposal</span>'
+            "</span>"
+        )
+    meta_html = "".join(import_meta)
+
+    import_button = _post_button("/archive", "action", "import", None, None, "Import Archive", "ok", "Importing archive...")
+    run_button = _post_button(
+        "/archive",
+        "action",
+        "run",
+        None,
+        None,
+        "Run Archive Voice Build",
+        "",
+        "Building archive voice proposal...",
+        disabled=(not drafting_enabled or not latest_import),
+        disabled_reason=(
+            "Import an archive and configure the selected AI provider first."
+            if not drafting_enabled or not latest_import
+            else ""
+        ),
+    )
+
+    input_block = (
+        '<form method="post" action="/archive" class="candidate-form">'
+        '<input type="hidden" name="action" value="import">'
+        '<input type="text" name="archive_dir" placeholder="Paste the path to your unzipped X archive folder">'
+        '<div class="controls">'
+        f'{import_button}'
+        f'{run_button}'
+        "</div>"
+        "</form>"
+    )
+
+    if not pending:
+        summary_excerpt = _escape(str(latest_summary.get("summary_text") or ""))
+        if len(summary_excerpt) > 420:
+            summary_excerpt = summary_excerpt[:417] + "..."
+        summary_html = (
+            f'<div class="voice-review-empty">Latest archive summary: {summary_excerpt}</div>'
+            if latest_summary
+            else '<div class="voice-review-empty">No archive imported yet.</div>'
+        )
+        return (
+            '<div class="voice-review-card">'
+            '<div class="voice-review-top">'
+            '<div class="voice-review-heading">'
+            '<div class="voice-review-kicker">Archive Bootstrap</div>'
+            '<h3 class="voice-review-title">Import archive and build a stronger starting voice</h3>'
+            '<p class="voice-review-summary">Clearfeed can extract your authored tweets, replies, note tweets, and community tweets from an unzipped X archive, turn them into an archive-derived summary, and propose a better <code>Voice.md</code> without touching <code>Humanizer.md</code>.</p>'
+            "</div>"
+            '<div class="voice-review-actions"></div>'
+            "</div>"
+            f"{input_block}"
+            f"{summary_html}"
+            f'<div class="voice-review-meta">{meta_html}</div>'
+            "</div>"
+        )
+
+    approve_button = _post_button("/archive", "action", "approve", "proposal_id", str(pending["id"]), "Apply Archive Voice", "ok", "Applying archive voice...")
+    reject_button = _post_button("/archive", "action", "reject", "proposal_id", str(pending["id"]), "Reject Proposal", "bad", "Rejecting proposal...")
+    return (
+        '<div class="voice-review-card">'
+        '<div class="voice-review-top">'
+        '<div class="voice-review-heading">'
+        '<div class="voice-review-kicker">Archive Bootstrap</div>'
+        f'<h3 class="voice-review-title">Archive proposal #{_escape(str(pending["id"]))} is ready</h3>'
+        f'<p class="voice-review-summary">{_escape(str(pending.get("summary_text") or ""))}</p>'
+        "</div>"
+        f'<div class="voice-review-actions">{approve_button}{reject_button}</div>'
+        "</div>"
+        f"{input_block}"
+        f'<div class="voice-review-meta">{meta_html}'
+        '<span class="voice-review-pill">'
+        f'<strong>{_escape(str(pending.get("sample_count") or 0))}</strong>'
+        '<span>Archive items used</span>'
+        "</span>"
+        "</div>"
+        f'<div class="voice-diff"><details><summary>View archive proposal diff</summary><pre>{_escape(str(pending.get("diff_text") or ""))}</pre></details></div>'
+        "</div>"
+    )
+
+
 def _setup_status_row(label: str, ok: bool, detail: str) -> str:
     badge_class = "badge-mini-ok" if ok else "badge-mini-warn"
     badge_text = "Ready" if ok else "Needs Setup"
@@ -1927,7 +2077,13 @@ def _setup_status_row(label: str, ok: bool, detail: str) -> str:
     )
 
 
-def _candidate_card(row: sqlite3.Row, draft_text_limit: int, posting_enabled: bool, drafting_enabled: bool) -> str:
+def _candidate_card(
+    row: sqlite3.Row,
+    draft_text_limit: int,
+    posting_enabled: bool,
+    drafting_enabled: bool,
+    image_generation_enabled: bool,
+) -> str:
     metrics = _metrics_text(row["raw_metrics"])
     draft_badge = ""
     if row["draft_id"]:
@@ -1956,7 +2112,7 @@ def _candidate_card(row: sqlite3.Row, draft_text_limit: int, posting_enabled: bo
         '</div>'
         '</section>'
         f"{_candidate_action_form(row, drafting_enabled)}"
-        f"{_candidate_draft_panel(row, draft_text_limit, posting_enabled, drafting_enabled)}"
+        f"{_candidate_draft_panel(row, draft_text_limit, posting_enabled, drafting_enabled, image_generation_enabled)}"
         '</div>'
         '<aside class="queue-card-side">'
         '<section class="side-panel">'
@@ -1976,14 +2132,14 @@ def _candidate_card(row: sqlite3.Row, draft_text_limit: int, posting_enabled: bo
 def _candidate_action_form(row: sqlite3.Row, drafting_enabled: bool) -> str:
     guidance_value = _escape(str(row["draft_generation_notes"] or ""))
     drafting_disabled_attr = (
-        ' disabled title="Set GOOGLE_CLOUD_PROJECT and GOOGLE_APPLICATION_CREDENTIALS to enable drafting."'
+        ' disabled title="Configure the selected AI provider in .env to enable drafting."'
         if not drafting_enabled
         else ""
     )
     drafting_note = (
         ""
         if drafting_enabled
-        else '<div class="inline-warning">Drafting is disabled until Google drafting credentials are configured.</div>'
+        else '<div class="inline-warning">Drafting is disabled until the selected AI provider is configured.</div>'
     )
     return (
         '<form method="post" action="/candidate" class="candidate-form">'
@@ -2008,6 +2164,7 @@ def _candidate_draft_panel(
     draft_text_limit: int,
     posting_enabled: bool,
     drafting_enabled: bool,
+    image_generation_enabled: bool,
 ) -> str:
     if not row["draft_id"]:
         return (
@@ -2045,6 +2202,7 @@ def _candidate_draft_panel(
         image_path=row["draft_image_path"],
         posting_enabled=posting_enabled,
         drafting_enabled=drafting_enabled,
+        image_generation_enabled=image_generation_enabled,
     )
     return (
         f'<section class="draft-inline" id="draft-{draft_id}">'
@@ -2064,6 +2222,7 @@ def _original_draft_card(
     draft_text_limit: int,
     posting_enabled: bool,
     drafting_enabled: bool,
+    image_generation_enabled: bool,
 ) -> str:
     controls = _draft_action_buttons(
         draft_id=int(row["id"]),
@@ -2072,6 +2231,7 @@ def _original_draft_card(
         image_path=row["image_path"],
         posting_enabled=posting_enabled,
         drafting_enabled=drafting_enabled,
+        image_generation_enabled=image_generation_enabled,
     )
     note_bits = [
         _escape(row["draft_type"] or "original"),
@@ -2101,6 +2261,7 @@ def _draft_action_buttons(
     image_path: Any,
     posting_enabled: bool,
     drafting_enabled: bool,
+    image_generation_enabled: bool,
 ) -> str:
     if status != "drafted":
         return ""
@@ -2132,8 +2293,8 @@ def _draft_action_buttons(
                 "Generate Image",
                 "",
                 "Generating image...",
-                disabled=not drafting_enabled,
-                disabled_reason="Set GOOGLE_CLOUD_PROJECT and GOOGLE_APPLICATION_CREDENTIALS to enable image generation.",
+                disabled=(not drafting_enabled or not image_generation_enabled),
+                disabled_reason="Configure a provider and AI_IMAGE_MODEL to enable image generation.",
             )
         )
     controls.append("</div>")

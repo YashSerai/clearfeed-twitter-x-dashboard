@@ -20,13 +20,6 @@ def _load_env_file(path: Path) -> None:
         os.environ.setdefault(key.strip(), value.strip())
 
 
-def _require_env(name: str) -> str:
-    value = os.environ.get(name, "").strip()
-    if not value:
-        raise RuntimeError(f"Missing required environment variable: {name}")
-    return value
-
-
 def _optional_env(name: str) -> str | None:
     value = os.environ.get(name, "").strip()
     return value or None
@@ -66,12 +59,17 @@ class AppConfig:
     storage_state_path: Path
     timezone: str
     playwright_headless: bool
+    ai_provider: str
+    ai_text_model: str
+    ai_polish_model: str
+    ai_vision_model: str | None
+    ai_image_model: str | None
     google_cloud_project: str | None
     google_cloud_location: str
     google_application_credentials: str | None
-    gemini_text_model: str
-    gemini_polish_model: str
-    gemini_image_model: str
+    openai_compat_base_url: str | None
+    openai_compat_api_key: str | None
+    openai_compat_timeout_seconds: int
     telegram_bot_token: str | None
     telegram_chat_id: str | None
     x_api_key: str | None
@@ -99,8 +97,38 @@ class AppConfig:
         return all(bool(item) for item in required)
 
     @property
+    def provider_label(self) -> str:
+        return "Vertex" if self.ai_provider == "vertex" else "OpenAI-Compatible"
+
+    @property
+    def provider_config_ready(self) -> bool:
+        if self.ai_provider == "openai_compatible":
+            return bool(self.openai_compat_base_url and self.ai_text_model and self.ai_polish_model)
+        return bool(self.google_cloud_project and self.google_application_credentials and self.ai_text_model and self.ai_polish_model)
+
+    @property
     def drafting_enabled(self) -> bool:
-        return bool(self.google_cloud_project and self.google_application_credentials)
+        return self.provider_config_ready
+
+    @property
+    def vision_model_name(self) -> str | None:
+        if self.ai_vision_model:
+            return self.ai_vision_model
+        if self.ai_provider == "vertex" and self.ai_text_model:
+            return self.ai_text_model
+        return None
+
+    @property
+    def vision_enabled(self) -> bool:
+        return bool(self.provider_config_ready and self.vision_model_name)
+
+    @property
+    def image_generation_enabled(self) -> bool:
+        return bool(self.provider_config_ready and self.ai_image_model)
+
+    @property
+    def web_research_enabled(self) -> bool:
+        return self.ai_provider == "vertex" and self.provider_config_ready
 
     @property
     def session_ready(self) -> bool:
@@ -111,56 +139,69 @@ class AppConfig:
         return bool(self.sources)
 
     def setup_status(self) -> dict[str, dict[str, str | bool]]:
+        provider_detail = (
+            "Provider configured."
+            if self.provider_config_ready
+            else (
+                "Set OpenAI-compatible base URL and models."
+                if self.ai_provider == "openai_compatible"
+                else "Add Google project, credentials, and models."
+            )
+        )
         return {
-            "profiles": {
-                "ok": True,
-                "label": "Voice Profiles",
-                "detail": "Templates ready.",
+            "provider": {"ok": True, "label": "AI Provider", "detail": self.provider_label},
+            "provider_config": {
+                "ok": self.provider_config_ready,
+                "label": "Provider Setup",
+                "detail": provider_detail,
             },
-            "google": {
-                "ok": self.drafting_enabled,
-                "label": "Google Drafting",
+            "profiles": {"ok": True, "label": "Voice Profiles", "detail": "Templates ready."},
+            "vision": {
+                "ok": self.vision_enabled,
+                "label": "Vision",
                 "detail": (
-                    "Drafting is enabled."
-                    if self.drafting_enabled
-                    else "Add Google project and credentials."
+                    f"Vision model: {self.vision_model_name}"
+                    if self.vision_enabled
+                    else "Optional. Configure AI_VISION_MODEL for image-aware drafting."
+                ),
+            },
+            "web": {
+                "ok": self.web_research_enabled,
+                "label": "Web Research",
+                "detail": (
+                    "Grounded web research is available."
+                    if self.web_research_enabled
+                    else "Optional. Unavailable on this provider."
+                ),
+            },
+            "image_generation": {
+                "ok": self.image_generation_enabled,
+                "label": "Image Generation",
+                "detail": (
+                    f"Image model: {self.ai_image_model}"
+                    if self.image_generation_enabled
+                    else "Optional. Configure AI_IMAGE_MODEL to enable it."
                 ),
             },
             "session": {
                 "ok": self.session_ready,
                 "label": "X Session",
-                "detail": (
-                    "Session captured."
-                    if self.session_ready
-                    else "Run capture-x-session.ps1."
-                ),
+                "detail": "Session captured." if self.session_ready else "Run capture-x-session.ps1.",
             },
             "sources": {
                 "ok": self.sources_ready,
                 "label": "Discovery Sources",
-                "detail": (
-                    f"{len(self.sources)} source(s) configured."
-                    if self.sources_ready
-                    else "Add at least one source."
-                ),
+                "detail": f"{len(self.sources)} source(s) configured." if self.sources_ready else "Add at least one source.",
             },
             "posting": {
                 "ok": self.posting_enabled,
                 "label": "X API Posting",
-                "detail": (
-                    "Posting is enabled."
-                    if self.posting_enabled
-                    else "Optional. Local approvals only."
-                ),
+                "detail": "Posting is enabled." if self.posting_enabled else "Optional. Local approvals only.",
             },
             "telegram": {
                 "ok": self.telegram_enabled,
                 "label": "Telegram Mirror",
-                "detail": (
-                    "Telegram mirroring is enabled."
-                    if self.telegram_enabled
-                    else "Optional. Currently off."
-                ),
+                "detail": "Telegram mirroring is enabled." if self.telegram_enabled else "Optional. Currently off.",
             },
         }
 
@@ -170,9 +211,7 @@ def load_config(root: str | Path | None = None) -> AppConfig:
     _load_env_file(project_root / ".env")
 
     cfg = yaml.safe_load((project_root / "config.yaml").read_text(encoding="utf-8"))
-    sources_cfg = yaml.safe_load(
-        (project_root / "data" / "sources" / "x_sources.yaml").read_text(encoding="utf-8")
-    )
+    sources_cfg = yaml.safe_load((project_root / "data" / "sources" / "x_sources.yaml").read_text(encoding="utf-8"))
 
     worker_cfg = dict(cfg["worker"])
     worker_cfg["min_delay_minutes"] = _get_int("WORKER_MIN_DELAY_MINUTES", int(worker_cfg["min_delay_minutes"]))
@@ -198,28 +237,23 @@ def load_config(root: str | Path | None = None) -> AppConfig:
                 f"Unsupported source type `{item_type or 'unknown'}` in data/sources/x_sources.yaml. "
                 "Supported source types are `list` and `home`."
             )
-
         enabled_env_var = item.get("enabled_env_var")
         if enabled_env_var and not _get_bool(str(enabled_env_var), bool(item.get("enabled", False))):
             continue
-
         url = str(item.get("url") or "").strip() or None
         env_var = item.get("env_var")
         if env_var:
             env_value = os.environ.get(str(env_var), "").strip()
             if env_value:
                 url = env_value
-
         if item_type == "home":
             url = "https://x.com/home"
         elif not url:
             continue
-
         source_weight = float(item.get("source_weight", 1.0))
         weight_env_var = item.get("weight_env_var")
         if weight_env_var:
             source_weight = _get_float(str(weight_env_var), source_weight)
-
         sources.append(
             SourceConfig(
                 key=item["key"],
@@ -234,20 +268,31 @@ def load_config(root: str | Path | None = None) -> AppConfig:
             )
         )
 
+    ai_provider = os.environ.get("AI_PROVIDER", "vertex").strip().lower() or "vertex"
+    if ai_provider not in {"vertex", "openai_compatible"}:
+        raise RuntimeError("AI_PROVIDER must be `vertex` or `openai_compatible`.")
+    ai_text_model = _optional_env("AI_TEXT_MODEL") or _optional_env("GEMINI_TEXT_MODEL") or ("gemini-3-flash-preview" if ai_provider == "vertex" else "")
+    ai_polish_model = _optional_env("AI_POLISH_MODEL") or _optional_env("GEMINI_POLISH_MODEL") or ("gemini-3-flash-preview" if ai_provider == "vertex" else "")
+    ai_vision_model = _optional_env("AI_VISION_MODEL")
+    ai_image_model = _optional_env("AI_IMAGE_MODEL") or _optional_env("GEMINI_IMAGE_MODEL")
+
     return AppConfig(
         root=project_root,
         database_path=(project_root / os.environ.get("DATABASE_PATH", "./data/marketing.sqlite3")).resolve(),
-        storage_state_path=(
-            project_root / os.environ.get("PLAYWRIGHT_STORAGE_STATE", "./data/browser/x_storage_state.json")
-        ).resolve(),
+        storage_state_path=(project_root / os.environ.get("PLAYWRIGHT_STORAGE_STATE", "./data/browser/x_storage_state.json")).resolve(),
         timezone=os.environ.get("TIMEZONE", "America/Vancouver"),
         playwright_headless=_get_bool("PLAYWRIGHT_HEADLESS", True),
+        ai_provider=ai_provider,
+        ai_text_model=ai_text_model,
+        ai_polish_model=ai_polish_model,
+        ai_vision_model=ai_vision_model,
+        ai_image_model=ai_image_model,
         google_cloud_project=_optional_env("GOOGLE_CLOUD_PROJECT"),
         google_cloud_location=os.environ.get("GOOGLE_CLOUD_LOCATION", "global"),
         google_application_credentials=os.environ.get("GOOGLE_APPLICATION_CREDENTIALS") or None,
-        gemini_text_model=os.environ.get("GEMINI_TEXT_MODEL", "gemini-3-flash-preview"),
-        gemini_polish_model=os.environ.get("GEMINI_POLISH_MODEL", "gemini-3-flash-preview"),
-        gemini_image_model=os.environ.get("GEMINI_IMAGE_MODEL", "gemini-2.5-flash-image"),
+        openai_compat_base_url=_optional_env("OPENAI_COMPAT_BASE_URL"),
+        openai_compat_api_key=_optional_env("OPENAI_COMPAT_API_KEY"),
+        openai_compat_timeout_seconds=_get_int("OPENAI_COMPAT_TIMEOUT_SECONDS", 180),
         telegram_bot_token=_optional_env("TELEGRAM_BOT_TOKEN"),
         telegram_chat_id=_optional_env("TELEGRAM_CHAT_ID"),
         x_api_key=_optional_env("X_API_KEY"),

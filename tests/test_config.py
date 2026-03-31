@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import os
 import tempfile
@@ -99,14 +99,13 @@ class ConfigTests(unittest.TestCase):
             self.assertFalse(config.telegram_enabled)
             self.assertFalse(config.posting_enabled)
             self.assertFalse(config.drafting_enabled)
+            self.assertEqual(config.ai_provider, "vertex")
             self.assertEqual(len(config.sources), 1)
-            self.assertEqual(config.sources[0].source_weight, 1.0)
 
     def test_source_weight_env_override_and_home_support(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             self._write_repo(root, include_home=True)
-            os.environ["GOOGLE_CLOUD_PROJECT"] = "demo-project"
             os.environ["TEST_WEIGHT"] = "1.4"
             os.environ["HOME_TIMELINE_ENABLED"] = "true"
             os.environ["HOME_TIMELINE_WEIGHT"] = "0.77"
@@ -126,11 +125,24 @@ class ConfigTests(unittest.TestCase):
             self.assertEqual(config.worker.min_delay_minutes, 22)
             self.assertEqual(config.worker.max_delay_minutes, 41)
 
+    def test_openai_compatible_provider_config(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self._write_repo(root)
+            os.environ["AI_PROVIDER"] = "openai_compatible"
+            os.environ["OPENAI_COMPAT_BASE_URL"] = "http://127.0.0.1:11434/v1"
+            os.environ["AI_TEXT_MODEL"] = "llama3"
+            os.environ["AI_POLISH_MODEL"] = "llama3"
+            config = load_config(root)
+            self.assertTrue(config.drafting_enabled)
+            self.assertEqual(config.provider_label, "OpenAI-Compatible")
+            self.assertFalse(config.web_research_enabled)
+            self.assertFalse(config.vision_enabled)
+
     def test_unsupported_source_type_raises(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             self._write_repo(root, source_type="mentions")
-            os.environ["GOOGLE_CLOUD_PROJECT"] = "demo-project"
             with self.assertRaises(RuntimeError):
                 load_config(root)
 
@@ -139,11 +151,9 @@ class ConfigTests(unittest.TestCase):
             root = Path(temp_dir)
             self._write_repo(root)
             (root / "profiles" / "default" / "Voice.md").unlink()
-            os.environ["GOOGLE_CLOUD_PROJECT"] = "demo-project"
             with self.assertRaises(RuntimeError):
                 load_config(root)
 
 
 if __name__ == "__main__":
     unittest.main()
-

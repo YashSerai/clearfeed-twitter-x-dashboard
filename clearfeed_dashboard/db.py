@@ -143,14 +143,46 @@ def bootstrap(conn: sqlite3.Connection) -> None:
         CREATE TABLE IF NOT EXISTS voice_review_proposals (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             status TEXT NOT NULL DEFAULT 'pending',
+            proposal_type TEXT NOT NULL DEFAULT 'learning',
             summary_text TEXT NOT NULL,
             proposal_text TEXT NOT NULL,
             diff_text TEXT NOT NULL,
             sample_count INTEGER NOT NULL DEFAULT 0,
             reviewed_until_event_id INTEGER NOT NULL DEFAULT 0,
+            source_import_id INTEGER,
             created_at TEXT NOT NULL,
             reviewed_at TEXT,
             review_notes TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS archive_imports (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            archive_path TEXT NOT NULL,
+            archive_name TEXT NOT NULL,
+            item_count INTEGER NOT NULL DEFAULT 0,
+            latest INTEGER NOT NULL DEFAULT 0,
+            imported_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS archive_posts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            import_id INTEGER NOT NULL,
+            item_kind TEXT NOT NULL,
+            text TEXT NOT NULL,
+            normalized_text TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            UNIQUE(import_id, normalized_text),
+            FOREIGN KEY(import_id) REFERENCES archive_imports(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS archive_voice_summaries (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            import_id INTEGER NOT NULL,
+            summary_text TEXT NOT NULL,
+            summary_path TEXT,
+            item_count INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY(import_id) REFERENCES archive_imports(id) ON DELETE CASCADE
         );
         """
     )
@@ -160,6 +192,12 @@ def bootstrap(conn: sqlite3.Connection) -> None:
     if "original_draft_text" not in draft_columns:
         conn.execute("ALTER TABLE drafts ADD COLUMN original_draft_text TEXT")
         conn.execute("UPDATE drafts SET original_draft_text = draft_text WHERE original_draft_text IS NULL")
+    proposal_columns = {str(row["name"]) for row in conn.execute("PRAGMA table_info(voice_review_proposals)").fetchall()}
+    if "proposal_type" not in proposal_columns:
+        conn.execute("ALTER TABLE voice_review_proposals ADD COLUMN proposal_type TEXT NOT NULL DEFAULT 'learning'")
+        conn.execute("UPDATE voice_review_proposals SET proposal_type = 'learning' WHERE proposal_type IS NULL OR proposal_type = ''")
+    if "source_import_id" not in proposal_columns:
+        conn.execute("ALTER TABLE voice_review_proposals ADD COLUMN source_import_id INTEGER")
 
 
 def start_run(conn: sqlite3.Connection) -> int:
@@ -526,7 +564,22 @@ def list_latest_voice_learning_events(conn: sqlite3.Connection, after_event_id: 
     ).fetchall()
 
 
-def get_latest_voice_review_proposal(conn: sqlite3.Connection, status: str | None = None) -> sqlite3.Row | None:
+def get_latest_voice_review_proposal(
+    conn: sqlite3.Connection,
+    status: str | None = None,
+    proposal_type: str | None = None,
+) -> sqlite3.Row | None:
+    if status and proposal_type:
+        return conn.execute(
+            """
+            SELECT *
+            FROM voice_review_proposals
+            WHERE status = ? AND proposal_type = ?
+            ORDER BY id DESC
+            LIMIT 1
+            """,
+            (status, proposal_type),
+        ).fetchone()
     if status:
         return conn.execute(
             """
@@ -537,6 +590,17 @@ def get_latest_voice_review_proposal(conn: sqlite3.Connection, status: str | Non
             LIMIT 1
             """,
             (status,),
+        ).fetchone()
+    if proposal_type:
+        return conn.execute(
+            """
+            SELECT *
+            FROM voice_review_proposals
+            WHERE proposal_type = ?
+            ORDER BY id DESC
+            LIMIT 1
+            """,
+            (proposal_type,),
         ).fetchone()
     return conn.execute(
         """
@@ -555,14 +619,26 @@ def create_voice_review_proposal(
     diff_text: str,
     sample_count: int,
     reviewed_until_event_id: int,
+    proposal_type: str = "learning",
+    source_import_id: int | None = None,
 ) -> int:
     cursor = conn.execute(
         """
         INSERT INTO voice_review_proposals(
-            status, summary_text, proposal_text, diff_text, sample_count, reviewed_until_event_id, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            status, proposal_type, summary_text, proposal_text, diff_text, sample_count, reviewed_until_event_id, source_import_id, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
-        ("pending", summary_text, proposal_text, diff_text, sample_count, reviewed_until_event_id, utc_now_iso()),
+        (
+            "pending",
+            proposal_type,
+            summary_text,
+            proposal_text,
+            diff_text,
+            sample_count,
+            reviewed_until_event_id,
+            source_import_id,
+            utc_now_iso(),
+        ),
     )
     return int(cursor.lastrowid)
 
@@ -581,6 +657,112 @@ def set_voice_review_proposal_status(
         """,
         (status, utc_now_iso(), review_notes, proposal_id),
     )
+
+
+def create_archive_import(conn: sqlite3.Connection, archive_path: str, archive_name: str, item_count: int) -> int:
+    conn.execute("UPDATE archive_imports SET latest = 0")
+    cursor = conn.execute(
+        """
+        INSERT INTO archive_imports(archive_path, archive_name, item_count, latest, imported_at)
+        VALUES (?, ?, ?, 1, ?)
+        """,
+        (archive_path, archive_name, item_count, utc_now_iso()),
+    )
+    return int(cursor.lastrowid)
+
+
+def insert_archive_items(conn: sqlite3.Connection, import_id: int, items: list[dict[str, str]]) -> None:
+    now = utc_now_iso()
+    conn.executemany(
+        """
+        INSERT OR IGNORE INTO archive_posts(import_id, item_kind, text, normalized_text, created_at)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        [
+            (
+                import_id,
+                item["kind"],
+                item["text"],
+                " ".join(item["text"].split()).strip(),
+                now,
+            )
+            for item in items
+        ],
+    )
+
+
+def create_archive_voice_summary(
+    conn: sqlite3.Connection,
+    import_id: int,
+    summary_text: str,
+    summary_path: str | None,
+    item_count: int,
+) -> int:
+    cursor = conn.execute(
+        """
+        INSERT INTO archive_voice_summaries(import_id, summary_text, summary_path, item_count, created_at)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        (import_id, summary_text, summary_path, item_count, utc_now_iso()),
+    )
+    return int(cursor.lastrowid)
+
+
+def get_latest_archive_import(conn: sqlite3.Connection) -> sqlite3.Row | None:
+    return conn.execute(
+        """
+        SELECT *
+        FROM archive_imports
+        WHERE latest = 1
+        ORDER BY id DESC
+        LIMIT 1
+        """
+    ).fetchone()
+
+
+def get_latest_archive_voice_summary(conn: sqlite3.Connection, import_id: int | None = None) -> sqlite3.Row | None:
+    if import_id is not None:
+        return conn.execute(
+            """
+            SELECT *
+            FROM archive_voice_summaries
+            WHERE import_id = ?
+            ORDER BY id DESC
+            LIMIT 1
+            """,
+            (import_id,),
+        ).fetchone()
+    return conn.execute(
+        """
+        SELECT avs.*
+        FROM archive_voice_summaries avs
+        JOIN archive_imports ai ON ai.id = avs.import_id
+        WHERE ai.latest = 1
+        ORDER BY avs.id DESC
+        LIMIT 1
+        """
+    ).fetchone()
+
+
+def count_archive_items(conn: sqlite3.Connection, import_id: int) -> int:
+    row = conn.execute(
+        "SELECT COUNT(*) AS c FROM archive_posts WHERE import_id = ?",
+        (import_id,),
+    ).fetchone()
+    return int(row["c"] if row else 0)
+
+
+def list_archive_items_preview(conn: sqlite3.Connection, import_id: int, limit: int) -> list[sqlite3.Row]:
+    return conn.execute(
+        """
+        SELECT item_kind, text
+        FROM archive_posts
+        WHERE import_id = ?
+        ORDER BY id DESC
+        LIMIT ?
+        """,
+        (import_id, limit),
+    ).fetchall()
 
 
 def get_telegram_offset(conn: sqlite3.Connection) -> int:

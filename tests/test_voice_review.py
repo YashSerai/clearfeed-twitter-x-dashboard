@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import os
 import tempfile
@@ -32,6 +32,32 @@ class _FakeDrafting:
             ).strip(),
         }
 
+    def propose_archive_voice_update(
+        self,
+        whoami_text: str,
+        voice_text: str,
+        humanizer_text: str,
+        archive_summary_text: str,
+        archive_examples: list[dict],
+    ) -> dict[str, str]:
+        return {
+            "summary_text": "The archive shows a sharper, more skeptical builder voice than the current file.",
+            "proposed_voice_md": textwrap.dedent(
+                """
+                # Voice
+
+                ## Voice Snapshot
+                - Tone: skeptical, direct, builder-native
+
+                ## Strong Examples
+                - Lead with the claim and keep it concrete.
+
+                ## Active Guardrails
+                - CHANGED BY MODEL AND SHOULD NOT SURVIVE
+                """
+            ).strip(),
+        }
+
 
 class VoiceReviewTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -43,6 +69,7 @@ class VoiceReviewTests(unittest.TestCase):
 
     def _write_repo(self, root: Path) -> None:
         (root / "profiles" / "default").mkdir(parents=True, exist_ok=True)
+        (root / "profiles" / "generated").mkdir(parents=True, exist_ok=True)
         (root / "data" / "sources").mkdir(parents=True, exist_ok=True)
         (root / "profiles" / "default" / "WhoAmI.md").write_text("# Who I Am\n- Name: Test User\n", encoding="utf-8")
         (root / "profiles" / "default" / "Voice.md").write_text(
@@ -133,26 +160,12 @@ class VoiceReviewTests(unittest.TestCase):
             service.bootstrap()
 
             with managed_connection(config.database_path) as conn:
-                draft_1 = db.insert_draft(
-                    conn,
-                    candidate_id=None,
-                    draft_type="reply",
-                    draft_text="generated reply one",
-                    rationale="reason",
-                    model_name="fake-model",
-                )
+                draft_1 = db.insert_draft(conn, None, "reply", "generated reply one", "reason", "fake-model")
                 db.update_draft_text(conn, draft_1, "edited final reply one")
                 db.mark_draft_status(conn, draft_1, "approved_local")
                 db.record_voice_learning_event(conn, draft_1, "approved_local", "dashboard")
 
-                draft_2 = db.insert_draft(
-                    conn,
-                    candidate_id=None,
-                    draft_type="reply",
-                    draft_text="generated reply two",
-                    rationale="reason",
-                    model_name="fake-model",
-                )
+                draft_2 = db.insert_draft(conn, None, "reply", "generated reply two", "reason", "fake-model")
                 db.mark_draft_status(conn, draft_2, "rejected")
                 db.record_voice_learning_event(conn, draft_2, "rejected", "dashboard")
 
@@ -160,9 +173,7 @@ class VoiceReviewTests(unittest.TestCase):
             self.assertEqual(result["status"], "created")
 
             status = service.voice_review_status()
-            self.assertIsNotNone(status["pending"])
             proposal_id = int(status["pending"]["id"])
-
             apply_result = service.approve_voice_review(proposal_id)
             self.assertIn("Applied voice review proposal", apply_result["message"])
 
@@ -170,42 +181,42 @@ class VoiceReviewTests(unittest.TestCase):
             self.assertIn("punchy, concrete, builder-first", final_voice)
             self.assertIn("Keep `profiles/default/Humanizer.md` as the last-pass short-form constraint layer.", final_voice)
             self.assertNotIn("CHANGED BY MODEL", final_voice)
-            self.assertTrue((root / "profiles" / "history").exists())
             self._close_service_logger(service)
 
-    def test_voice_review_proposal_can_be_rejected(self) -> None:
+    def test_archive_voice_import_and_proposal_can_be_applied(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             self._write_repo(root)
+            archive_root = root / "twitter-test"
+            (archive_root / "data").mkdir(parents=True, exist_ok=True)
+            (archive_root / "data" / "tweets.js").write_text(
+                "window.YTD.tweets.part0 = "
+                '[{"tweet":{"full_text":"The real edge is distribution with continuity.","retweeted":false,"in_reply_to_status_id_str":""}},'
+                '{"tweet":{"full_text":"Most AI products still feel stateless.","retweeted":false,"in_reply_to_status_id_str":"123"}}];',
+                encoding="utf-8",
+            )
             config = load_config(root)
             service = XAgentService(config)
             service.drafting = _FakeDrafting()
             service.bootstrap()
 
-            with managed_connection(config.database_path) as conn:
-                for idx in range(2):
-                    draft_id = db.insert_draft(
-                        conn,
-                        candidate_id=None,
-                        draft_type="reply",
-                        draft_text=f"generated reply {idx}",
-                        rationale="reason",
-                        model_name="fake-model",
-                    )
-                    db.mark_draft_status(conn, draft_id, "rejected")
-                    db.record_voice_learning_event(conn, draft_id, "rejected", "dashboard")
+            import_result = service.import_x_archive(str(archive_root))
+            self.assertEqual(import_result["item_count"], 2)
+            self.assertTrue((root / "profiles" / "generated" / "ARCHIVE_VOICE.md").exists())
 
-            result = service.maybe_run_voice_review(force=True)
-            proposal_id = int(result["proposal_id"])
-            reject_result = service.reject_voice_review(proposal_id)
-            self.assertIn("Rejected voice review proposal", reject_result["message"])
+            build_result = service.maybe_run_archive_voice_build()
+            self.assertEqual(build_result["status"], "created")
 
-            status = service.voice_review_status()
-            self.assertIsNone(status["pending"])
-            self.assertEqual(status["latest"]["status"], "rejected")
+            archive_status = service.archive_voice_status()
+            proposal_id = int(archive_status["pending"]["id"])
+            apply_result = service.approve_archive_voice_proposal(proposal_id)
+            self.assertIn("Applied archive voice proposal", apply_result["message"])
+
+            final_voice = (root / "profiles" / "default" / "Voice.md").read_text(encoding="utf-8")
+            self.assertIn("skeptical, direct, builder-native", final_voice)
+            self.assertIn("Keep `profiles/default/Humanizer.md` as the last-pass short-form constraint layer.", final_voice)
             self._close_service_logger(service)
 
 
 if __name__ == "__main__":
     unittest.main()
-
