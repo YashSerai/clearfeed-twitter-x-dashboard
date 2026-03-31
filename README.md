@@ -27,7 +27,7 @@ The point is simple: tighter inputs, better drafting, and a workflow where the h
 - Provider-agnostic AI setup: Vertex or OpenAI-compatible endpoints.
 - Local voice memory that learns from approved, rejected, and dashboard-edited drafts.
 - Archive import that can bootstrap a stronger `Voice.md` from your real X history.
-- Reviewed `Voice.md` upgrade proposals generated from your real decisions over time.
+- Adaptive Voice suggestions that improve `Voice.md` from your real decisions over time.
 - AI-assisted profile setup with questionnaire templates and prompt packs.
 - Editable drafts so you can replace or steer the AI instead of accepting whatever it generated.
 - Local-first approvals by default.
@@ -54,7 +54,7 @@ When you add it, use:
 - Finding posts that are actually worth replying to.
 - Turning rough ideas into reply drafts in your own voice.
 - Editing before posting so AI stays useful instead of taking over.
-- Building a better voice file over time from what you approve, reject, and rewrite.
+- Letting Adaptive Voice learn from what you approve, reject, and rewrite.
 
 ## Why It's Different
 - Better inputs first. The core job is filtering the feed, not just generating text.
@@ -72,7 +72,7 @@ You follow AI builders, startup founders, and infra researchers across a few lis
 3. The worker scrapes recent posts, scores them, and pushes the best candidates into the local dashboard.
 4. You draft a reply, quote reply, or original post in your own voice.
 5. You edit in the dashboard, approve, reject, or mark it as manually posted.
-6. The app saves those decisions locally and uses them to propose better `Voice.md` updates over time.
+6. The app saves those decisions locally and lets Adaptive Voice propose better `Voice.md` updates over time.
 7. If posting credentials are configured, the app can post through the X API. If not, the draft stays local and copy-ready.
 
 ## Workflow Demo
@@ -175,7 +175,7 @@ If you want to improve the source ranking, dashboard UX, or onboarding flow, ope
 - Home timeline scraping is optional and disabled by default.
 - Posting uses the official X API only.
 - This project is designed for human-assisted workflows, not unattended automation.
-- Local models are supported through the OpenAI-compatible path, but stronger hosted models usually produce better archive-to-voice proposals and cleaner voice-review updates.
+- Local models are supported through the OpenAI-compatible path, but stronger hosted models usually produce better archive-to-voice proposals and cleaner Adaptive Voice updates.
 
 ## About the Developer
 I built Clearfeed because I was tired of how noisy X had become. Too much scroll. Too little signal. I wanted something that helped me keep up with smart people, find posts actually worth replying to, and stay in the loop without living in the feed.

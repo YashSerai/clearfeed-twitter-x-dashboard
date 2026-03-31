@@ -1301,11 +1301,11 @@ def _render_dashboard(
         <div class="section-note">Import your unzipped X archive to bootstrap a stronger voice profile from real authored posts. The archive summary stays local and proposals still require review before they touch <code>Voice.md</code>.</div>
         {archive_voice_html}
       </section>
-      <section class="card span-12" id="voice-review">
-        <h2>Voice Review</h2>
-        <div class="section-note">The app learns from drafts you approve, reject, and edit in the dashboard. It proposes reviewed updates to <code>Voice.md</code> over time. <code>Humanizer.md</code> stays fixed.</div>
-        {voice_review_html}
-      </section>
+        <section class="card span-12" id="voice-review">
+          <h2>Adaptive Voice</h2>
+          <div class="section-note">Clearfeed learns from what you edit, approve, and reject in the dashboard, then suggests a better <code>Voice.md</code> over time. <code>Humanizer.md</code> stays fixed.</div>
+          {voice_review_html}
+        </section>
       <section class="card span-4 original-drafts-card">
         <h2>Create Original Drafts</h2>
         <div class="section-note">Use this for standalone posts that are not tied to a tweet in the reply queue.</div>
@@ -1345,7 +1345,7 @@ def _render_dashboard(
         <div class="queue-header">
           <div>
             <h2>Reply Queue</h2>
-            <div class="section-note">Work through one candidate at a time. Each tweet keeps its draft, edit box, and approval actions attached so you can review without losing context. Edit drafts here before approving if you want voice review to learn from your changes. {'Posting is live through the X API.' if posting_enabled else 'Posting creds are not configured, so approvals stay local and copy-ready.'} {'' if drafting_enabled else 'Draft generation is disabled until the selected AI provider is configured.'}</div>
+              <div class="section-note">Work through one candidate at a time. Each tweet keeps its draft, edit box, and approval actions attached so you can review without losing context. Edit drafts here before approving if you want Adaptive Voice to learn from your changes. {'Posting is live through the X API.' if posting_enabled else 'Posting creds are not configured, so approvals stay local and copy-ready.'} {'' if drafting_enabled else 'Draft generation is disabled until the selected AI provider is configured.'}</div>
           </div>
           <div class="queue-toolbar">
             <span class="queue-counter" data-queue-counter>{len(queue_candidates)} in queue</span>
@@ -1888,11 +1888,11 @@ def _voice_review_card(voice_review: dict[str, Any], drafting_enabled: bool) -> 
         "run",
         None,
         None,
-        "Run Voice Review",
+        "Build Voice Update",
         "ok",
-        "Running voice review...",
+        "Building voice update...",
         disabled=not drafting_enabled,
-        disabled_reason="Configure the selected AI provider before running voice review.",
+        disabled_reason="Configure the selected AI provider before building a voice update.",
     )
 
     if not pending:
@@ -1900,13 +1900,12 @@ def _voice_review_card(voice_review: dict[str, Any], drafting_enabled: bool) -> 
             '<div class="voice-review-card">'
             '<div class="voice-review-top">'
             '<div class="voice-review-heading">'
-            '<div class="voice-review-kicker">Adaptive Voice</div>'
-            '<h3 class="voice-review-title">No pending proposal</h3>'
-            '<p class="voice-review-summary">When enough approved, rejected, or edited drafts accumulate, you can run a review to turn those patterns into a cleaner <code>Voice.md</code> proposal. <code>Humanizer.md</code> stays untouched.</p>'
+            '<h3 class="voice-review-title">No voice update waiting</h3>'
+            '<p class="voice-review-summary">When enough examples build up, Clearfeed can turn your edits and decisions into a reviewed <code>Voice.md</code> update.</p>'
             "</div>"
             f'<div class="voice-review-actions">{run_button}</div>'
             "</div>"
-            '<div class="voice-review-empty">Best signal comes from editing drafts in the dashboard before you approve them. Those edits give the review system something concrete to learn from.</div>'
+            '<div class="voice-review-empty">Best results come from editing drafts here before you approve or mark them posted. Those edits give Adaptive Voice something concrete to learn from.</div>'
             f'<div class="voice-review-meta">{meta_html}</div>'
             "</div>"
         )
@@ -1934,7 +1933,7 @@ def _voice_review_card(voice_review: dict[str, Any], drafting_enabled: bool) -> 
     diff_html = (
         '<div class="voice-diff">'
         '<details>'
-        '<summary>View diff</summary>'
+        '<summary>Preview changes</summary>'
         f'<pre>{_escape(str(pending.get("diff_text") or ""))}</pre>'
         "</details>"
         "</div>"
@@ -1943,8 +1942,7 @@ def _voice_review_card(voice_review: dict[str, Any], drafting_enabled: bool) -> 
         '<div class="voice-review-card">'
         '<div class="voice-review-top">'
         '<div class="voice-review-heading">'
-        '<div class="voice-review-kicker">Adaptive Voice</div>'
-        f'<h3 class="voice-review-title">Proposal #{_escape(str(pending["id"]))} is ready</h3>'
+        f'<h3 class="voice-review-title">Voice update #{_escape(str(pending["id"]))} is ready</h3>'
         f'<p class="voice-review-summary">{_escape(str(pending.get("summary_text") or ""))}</p>'
         "</div>"
         f'<div class="voice-review-actions">{approve_button}{reject_button}</div>'
