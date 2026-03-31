@@ -195,3 +195,54 @@ Rules:
                 )
             )
         return results
+
+    def propose_voice_update(
+        self,
+        whoami_text: str,
+        voice_text: str,
+        humanizer_text: str,
+        learning_events: list[dict[str, Any]],
+    ) -> dict[str, str]:
+        prompt = f"""
+You are reviewing a user's local X drafting behavior and proposing an improved Voice.md file.
+
+Inputs:
+- WhoAmI.md
+- current Voice.md
+- Humanizer.md
+- recent learning events from the dashboard
+
+WhoAmI.md:
+{whoami_text}
+
+Current Voice.md:
+{voice_text}
+
+Humanizer.md:
+{humanizer_text}
+
+Recent learning events:
+{json.dumps(learning_events, indent=2)}
+
+Task:
+- Study what the user actually approved, rejected, and edited.
+- Use edits as the highest-signal feedback.
+- Update the Voice.md guidance so future drafts better match the user's real behavior.
+- Keep the file concise and practical.
+- Preserve the user's tone rather than flattening it.
+- Do not rewrite Humanizer.md.
+- Do not add made-up biography details.
+- Preserve the `## Active Guardrails` section from the current Voice.md exactly.
+- Revise only the sections above that guardrails block.
+
+Output:
+- Return JSON only.
+- Keys:
+  - summary_text: short explanation of the most important voice changes you are proposing
+  - proposed_voice_md: the full proposed contents of Voice.md
+"""
+        payload = self.vertex.generate_json(self.config.gemini_polish_model, prompt, temperature=0.35)
+        return {
+            "summary_text": str(payload.get("summary_text", "")).strip(),
+            "proposed_voice_md": str(payload.get("proposed_voice_md", "")).strip(),
+        }

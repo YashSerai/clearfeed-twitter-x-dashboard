@@ -89,6 +89,7 @@ def bootstrap(conn: sqlite3.Connection) -> None:
             draft_type TEXT NOT NULL,
             status TEXT NOT NULL DEFAULT 'drafted',
             draft_text TEXT NOT NULL,
+            original_draft_text TEXT,
             rationale TEXT NOT NULL,
             image_prompt TEXT,
             image_reason TEXT,
@@ -119,11 +120,46 @@ def bootstrap(conn: sqlite3.Connection) -> None:
             key TEXT PRIMARY KEY,
             value TEXT NOT NULL
         );
+
+        CREATE TABLE IF NOT EXISTS voice_learning_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            draft_id INTEGER NOT NULL,
+            draft_type TEXT NOT NULL,
+            decision TEXT NOT NULL,
+            source_channel TEXT NOT NULL,
+            source_tweet_id TEXT,
+            source_url TEXT,
+            source_text TEXT,
+            generated_text TEXT NOT NULL,
+            final_text TEXT NOT NULL,
+            was_edited INTEGER NOT NULL DEFAULT 0,
+            rationale TEXT,
+            generation_notes TEXT,
+            model_name TEXT,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY(draft_id) REFERENCES drafts(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS voice_review_proposals (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            status TEXT NOT NULL DEFAULT 'pending',
+            summary_text TEXT NOT NULL,
+            proposal_text TEXT NOT NULL,
+            diff_text TEXT NOT NULL,
+            sample_count INTEGER NOT NULL DEFAULT 0,
+            reviewed_until_event_id INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            reviewed_at TEXT,
+            review_notes TEXT
+        );
         """
     )
     draft_columns = {str(row["name"]) for row in conn.execute("PRAGMA table_info(drafts)").fetchall()}
     if "generation_notes" not in draft_columns:
         conn.execute("ALTER TABLE drafts ADD COLUMN generation_notes TEXT")
+    if "original_draft_text" not in draft_columns:
+        conn.execute("ALTER TABLE drafts ADD COLUMN original_draft_text TEXT")
+        conn.execute("UPDATE drafts SET original_draft_text = draft_text WHERE original_draft_text IS NULL")
 
 
 def start_run(conn: sqlite3.Connection) -> int:
@@ -321,10 +357,22 @@ def insert_draft(
     cursor = conn.execute(
         """
         INSERT INTO drafts(
-            candidate_id, draft_type, draft_text, rationale, model_name, image_prompt, image_reason, generation_notes, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            candidate_id, draft_type, draft_text, original_draft_text, rationale, model_name, image_prompt, image_reason, generation_notes, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
-        (candidate_id, draft_type, draft_text, rationale, model_name, image_prompt, image_reason, generation_notes, now, now),
+        (
+            candidate_id,
+            draft_type,
+            draft_text,
+            draft_text,
+            rationale,
+            model_name,
+            image_prompt,
+            image_reason,
+            generation_notes,
+            now,
+            now,
+        ),
     )
     return int(cursor.lastrowid)
 
@@ -408,6 +456,130 @@ def record_event(conn: sqlite3.Connection, entity_type: str, entity_id: int | No
     conn.execute(
         "INSERT INTO approval_events(entity_type, entity_id, action, payload_json, created_at) VALUES (?, ?, ?, ?, ?)",
         (entity_type, entity_id, action, json.dumps(payload), utc_now_iso()),
+    )
+
+
+def record_voice_learning_event(
+    conn: sqlite3.Connection,
+    draft_id: int,
+    decision: str,
+    source_channel: str,
+) -> None:
+    row = get_draft(conn, draft_id)
+    if not row:
+        raise RuntimeError(f"Draft {draft_id} not found")
+    generated_text = str(row["original_draft_text"] or row["draft_text"] or "").strip()
+    final_text = str(row["draft_text"] or "").strip()
+    conn.execute(
+        """
+        INSERT INTO voice_learning_events(
+            draft_id, draft_type, decision, source_channel, source_tweet_id, source_url, source_text,
+            generated_text, final_text, was_edited, rationale, generation_notes, model_name, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            draft_id,
+            row["draft_type"],
+            decision,
+            source_channel,
+            row["tweet_id"],
+            row["source_url"],
+            row["source_text"],
+            generated_text,
+            final_text,
+            1 if generated_text != final_text else 0,
+            row["rationale"],
+            row["generation_notes"],
+            row["model_name"],
+            utc_now_iso(),
+        ),
+    )
+
+
+def count_voice_learning_events_since(conn: sqlite3.Connection, after_event_id: int) -> int:
+    row = conn.execute(
+        """
+        SELECT COUNT(*) AS c
+        FROM voice_learning_events
+        WHERE id > ?
+        """,
+        (after_event_id,),
+    ).fetchone()
+    return int(row["c"] if row else 0)
+
+
+def list_latest_voice_learning_events(conn: sqlite3.Connection, after_event_id: int, limit: int) -> list[sqlite3.Row]:
+    return conn.execute(
+        """
+        SELECT vle.*
+        FROM voice_learning_events vle
+        JOIN (
+            SELECT draft_id, MAX(id) AS max_id
+            FROM voice_learning_events
+            GROUP BY draft_id
+        ) latest ON latest.max_id = vle.id
+        WHERE vle.id > ?
+        ORDER BY vle.id DESC
+        LIMIT ?
+        """,
+        (after_event_id, limit),
+    ).fetchall()
+
+
+def get_latest_voice_review_proposal(conn: sqlite3.Connection, status: str | None = None) -> sqlite3.Row | None:
+    if status:
+        return conn.execute(
+            """
+            SELECT *
+            FROM voice_review_proposals
+            WHERE status = ?
+            ORDER BY id DESC
+            LIMIT 1
+            """,
+            (status,),
+        ).fetchone()
+    return conn.execute(
+        """
+        SELECT *
+        FROM voice_review_proposals
+        ORDER BY id DESC
+        LIMIT 1
+        """
+    ).fetchone()
+
+
+def create_voice_review_proposal(
+    conn: sqlite3.Connection,
+    summary_text: str,
+    proposal_text: str,
+    diff_text: str,
+    sample_count: int,
+    reviewed_until_event_id: int,
+) -> int:
+    cursor = conn.execute(
+        """
+        INSERT INTO voice_review_proposals(
+            status, summary_text, proposal_text, diff_text, sample_count, reviewed_until_event_id, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+        ("pending", summary_text, proposal_text, diff_text, sample_count, reviewed_until_event_id, utc_now_iso()),
+    )
+    return int(cursor.lastrowid)
+
+
+def set_voice_review_proposal_status(
+    conn: sqlite3.Connection,
+    proposal_id: int,
+    status: str,
+    review_notes: str = "",
+) -> None:
+    conn.execute(
+        """
+        UPDATE voice_review_proposals
+        SET status = ?, reviewed_at = ?, review_notes = ?
+        WHERE id = ?
+        """,
+        (status, utc_now_iso(), review_notes, proposal_id),
     )
 
 

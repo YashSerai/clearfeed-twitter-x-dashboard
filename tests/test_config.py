@@ -53,6 +53,10 @@ class ConfigTests(unittest.TestCase):
                   homepage_llm_pool_size: 0
                   homepage_max_alerts_per_cycle: 0
                   author_signal_lookback_hours: 72
+                  voice_review_enabled: true
+                  voice_review_interval_hours: 24
+                  voice_review_min_examples: 6
+                  voice_review_max_examples: 18
                 """
             ).strip(),
             encoding="utf-8",

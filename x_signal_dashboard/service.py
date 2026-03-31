@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import difflib
 import json
 import logging
 import os
@@ -112,7 +113,7 @@ class XAgentService:
         with managed_connection(self.config.database_path) as conn:
             db.bootstrap(conn)
             if action == "approve":
-                approval = self._approve_draft(conn, draft_id, notify_telegram=notify_telegram)
+                approval = self._approve_draft(conn, draft_id, notify_telegram=notify_telegram, source_channel="dashboard")
                 if approval["status"] == "posted":
                     message = f"Posted draft #{draft_id} as tweet {approval['tweet_id']}."
                 else:
@@ -130,6 +131,7 @@ class XAgentService:
                 if draft["candidate_id"]:
                     db.set_candidate_status(conn, int(draft["candidate_id"]), "manual_posted")
                 db.record_event(conn, "draft", draft_id, "manual_posted", {"via": "dashboard"})
+                db.record_voice_learning_event(conn, draft_id, "manual_posted", "dashboard")
                 return {
                     "message": f"Draft #{draft_id} marked as manually posted.",
                     "focus_draft_id": draft_id,
@@ -138,6 +140,7 @@ class XAgentService:
             if action == "reject":
                 db.mark_draft_status(conn, draft_id, "rejected")
                 db.record_event(conn, "draft", draft_id, "reject", {"via": "dashboard"})
+                db.record_voice_learning_event(conn, draft_id, "rejected", "dashboard")
                 return {
                     "message": f"Draft #{draft_id} rejected.",
                     "focus_draft_id": draft_id,
@@ -176,6 +179,170 @@ class XAgentService:
             db.bootstrap(conn)
             return self._generate_original_post_drafts(conn, topic, notify_telegram=notify_telegram)
 
+    def maybe_run_voice_review(self, force: bool = False) -> dict[str, Any]:
+        self._ensure_drafting_enabled()
+        with managed_connection(self.config.database_path) as conn:
+            db.bootstrap(conn)
+            pending = db.get_latest_voice_review_proposal(conn, status="pending")
+            if pending:
+                return {
+                    "status": "pending",
+                    "message": f"Voice review proposal #{pending['id']} is still waiting for approval.",
+                    "proposal_id": int(pending["id"]),
+                }
+
+            latest = db.get_latest_voice_review_proposal(conn)
+            reviewed_until_event_id = int(latest["reviewed_until_event_id"]) if latest else 0
+            last_review_at = _parse_runtime_datetime(str(latest["created_at"])) if latest and latest["created_at"] else None
+
+            if not force and not self.config.worker.voice_review_enabled:
+                return {"status": "disabled", "message": "Voice review is disabled in config."}
+            if (
+                not force
+                and last_review_at
+                and datetime.now(timezone.utc) - last_review_at
+                < timedelta(hours=self.config.worker.voice_review_interval_hours)
+            ):
+                return {"status": "skipped", "message": "Voice review already ran recently."}
+
+            available_examples = db.count_voice_learning_events_since(conn, reviewed_until_event_id)
+            if available_examples < self.config.worker.voice_review_min_examples:
+                return {
+                    "status": "skipped",
+                    "message": (
+                        f"Need at least {self.config.worker.voice_review_min_examples} new learning events before "
+                        "running voice review."
+                    ),
+                }
+
+            learning_rows = db.list_latest_voice_learning_events(
+                conn,
+                after_event_id=reviewed_until_event_id,
+                limit=self.config.worker.voice_review_max_examples,
+            )
+            if len(learning_rows) < self.config.worker.voice_review_min_examples:
+                return {"status": "skipped", "message": "Not enough distinct draft decisions to review yet."}
+
+            learning_events = [
+                {
+                    "id": int(row["id"]),
+                    "draft_type": str(row["draft_type"]),
+                    "decision": str(row["decision"]),
+                    "source_channel": str(row["source_channel"]),
+                    "source_text": str(row["source_text"] or ""),
+                    "generated_text": str(row["generated_text"]),
+                    "final_text": str(row["final_text"]),
+                    "was_edited": bool(row["was_edited"]),
+                    "generation_notes": str(row["generation_notes"] or ""),
+                }
+                for row in learning_rows
+            ]
+
+            voice_path = self._voice_file_path()
+            current_voice = voice_path.read_text(encoding="utf-8")
+            proposed = self.drafting.propose_voice_update(
+                whoami_text=self._whoami_file_path().read_text(encoding="utf-8"),
+                voice_text=current_voice,
+                humanizer_text=self._humanizer_file_path().read_text(encoding="utf-8"),
+                learning_events=learning_events,
+            )
+            proposal_text = self._preserve_voice_guardrails(
+                current_voice=current_voice,
+                proposed_voice=proposed["proposed_voice_md"],
+            )
+            if proposal_text.strip() == current_voice.strip():
+                return {"status": "no_change", "message": "Voice review found no meaningful update to apply."}
+
+            diff_text = "\n".join(
+                difflib.unified_diff(
+                    current_voice.splitlines(),
+                    proposal_text.splitlines(),
+                    fromfile="profiles/default/Voice.md",
+                    tofile="profiles/proposals/Voice.proposed.md",
+                    lineterm="",
+                )
+            )
+            proposal_id = db.create_voice_review_proposal(
+                conn,
+                summary_text=proposed["summary_text"] or "Voice review generated a new proposal.",
+                proposal_text=proposal_text,
+                diff_text=diff_text,
+                sample_count=len(learning_events),
+                reviewed_until_event_id=max(int(row["id"]) for row in learning_rows),
+            )
+            db.record_event(conn, "voice_review", proposal_id, "proposal_created", {"sample_count": len(learning_events)})
+            return {
+                "status": "created",
+                "message": f"Created voice review proposal #{proposal_id}.",
+                "proposal_id": proposal_id,
+            }
+
+    def approve_voice_review(self, proposal_id: int) -> dict[str, Any]:
+        with managed_connection(self.config.database_path) as conn:
+            db.bootstrap(conn)
+            proposal = conn.execute("SELECT * FROM voice_review_proposals WHERE id = ?", (proposal_id,)).fetchone()
+            if not proposal:
+                raise RuntimeError(f"Voice review proposal {proposal_id} not found.")
+            if str(proposal["status"]) != "pending":
+                raise RuntimeError(f"Voice review proposal #{proposal_id} is already {proposal['status']}.")
+
+            voice_path = self._voice_file_path()
+            history_dir = self.config.root / "profiles" / "history"
+            history_dir.mkdir(parents=True, exist_ok=True)
+            timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+            backup_path = history_dir / f"Voice-{timestamp}.md"
+            shutil.copy2(voice_path, backup_path)
+            voice_path.write_text(str(proposal["proposal_text"]).strip() + "\n", encoding="utf-8")
+
+            db.set_voice_review_proposal_status(conn, proposal_id, "approved", review_notes=f"Backup: {backup_path.name}")
+            db.record_event(conn, "voice_review", proposal_id, "proposal_approved", {"backup_path": str(backup_path)})
+            return {"message": f"Applied voice review proposal #{proposal_id}.", "backup_path": str(backup_path)}
+
+    def reject_voice_review(self, proposal_id: int) -> dict[str, Any]:
+        with managed_connection(self.config.database_path) as conn:
+            db.bootstrap(conn)
+            proposal = conn.execute("SELECT * FROM voice_review_proposals WHERE id = ?", (proposal_id,)).fetchone()
+            if not proposal:
+                raise RuntimeError(f"Voice review proposal {proposal_id} not found.")
+            if str(proposal["status"]) != "pending":
+                raise RuntimeError(f"Voice review proposal #{proposal_id} is already {proposal['status']}.")
+            db.set_voice_review_proposal_status(conn, proposal_id, "rejected")
+            db.record_event(conn, "voice_review", proposal_id, "proposal_rejected", {})
+            return {"message": f"Rejected voice review proposal #{proposal_id}."}
+
+    def voice_review_status(self) -> dict[str, Any]:
+        with managed_connection(self.config.database_path) as conn:
+            db.bootstrap(conn)
+            pending = db.get_latest_voice_review_proposal(conn, status="pending")
+            latest = db.get_latest_voice_review_proposal(conn)
+            reviewed_until = int(latest["reviewed_until_event_id"]) if latest else 0
+            return {
+                "enabled": bool(self.config.worker.voice_review_enabled),
+                "pending": (
+                    {
+                        "id": int(pending["id"]),
+                        "summary_text": str(pending["summary_text"]),
+                        "diff_text": str(pending["diff_text"]),
+                        "sample_count": int(pending["sample_count"]),
+                        "created_at": str(pending["created_at"]),
+                    }
+                    if pending
+                    else None
+                ),
+                "latest": (
+                    {
+                        "id": int(latest["id"]),
+                        "status": str(latest["status"]),
+                        "created_at": str(latest["created_at"]),
+                        "reviewed_at": str(latest["reviewed_at"] or ""),
+                        "sample_count": int(latest["sample_count"]),
+                    }
+                    if latest
+                    else None
+                ),
+                "new_examples": db.count_voice_learning_events_since(conn, reviewed_until),
+            }
+
     def reset_state(self, clear_telegram: bool = True) -> dict[str, int]:
         cleared_messages = 0
         last_exc: Exception | None = None
@@ -206,6 +373,8 @@ class XAgentService:
                     conn.execute("DELETE FROM approval_events")
                     conn.execute("DELETE FROM run_logs")
                     conn.execute("DELETE FROM telegram_state")
+                    conn.execute("DELETE FROM voice_learning_events")
+                    conn.execute("DELETE FROM voice_review_proposals")
                 last_exc = None
                 break
             except sqlite3.OperationalError as exc:
@@ -442,6 +611,11 @@ class XAgentService:
                 self._write_status(state="running", last_error=None)
                 self.process_telegram_updates()
                 self.run_cycle()
+                if self.drafting is not None:
+                    try:
+                        self.maybe_run_voice_review(force=False)
+                    except Exception as exc:
+                        self.logger.exception("voice review iteration failed: %s", exc)
                 self.process_telegram_updates()
                 next_run_at = datetime.now(timezone.utc) + timedelta(seconds=next_delay)
                 self._persist_worker_next_run_at(next_run_at)
@@ -512,7 +686,7 @@ class XAgentService:
                     callback_id,
                     "Posting" if self.config.posting_enabled else "Approving locally",
                 )
-                self._approve_draft(conn, entity_id)
+                self._approve_draft(conn, entity_id, source_channel="telegram")
                 return
             if action == "mp":
                 draft = db.get_draft(conn, entity_id)
@@ -521,6 +695,7 @@ class XAgentService:
                     if draft["candidate_id"]:
                         db.set_candidate_status(conn, int(draft["candidate_id"]), "manual_posted")
                     db.record_event(conn, "draft", entity_id, "manual_posted", {"via": "telegram"})
+                    db.record_voice_learning_event(conn, entity_id, "manual_posted", "telegram")
                 self.telegram.safe_answer_callback_query(callback_id, "Marked manual")
                 return
             if action == "im":
@@ -530,6 +705,7 @@ class XAgentService:
             if action == "rj":
                 db.mark_draft_status(conn, entity_id, "rejected")
                 db.record_event(conn, "draft", entity_id, "reject", {})
+                db.record_voice_learning_event(conn, entity_id, "rejected", "telegram")
                 self.telegram.safe_answer_callback_query(callback_id, "Rejected")
                 return
 
@@ -623,7 +799,13 @@ class XAgentService:
             db.set_draft_message_id(conn, draft_id, int(message["message_id"]))
         return draft_id
 
-    def _approve_draft(self, conn: sqlite3.Connection, draft_id: int, notify_telegram: bool = True) -> dict[str, str]:
+    def _approve_draft(
+        self,
+        conn: sqlite3.Connection,
+        draft_id: int,
+        notify_telegram: bool = True,
+        source_channel: str = "dashboard",
+    ) -> dict[str, str]:
         draft = db.get_draft(conn, draft_id)
         if not draft:
             if notify_telegram:
@@ -634,7 +816,8 @@ class XAgentService:
             db.mark_draft_status(conn, draft_id, "approved_local")
             if draft["candidate_id"]:
                 db.set_candidate_status(conn, int(draft["candidate_id"]), "approved_local")
-            db.record_event(conn, "draft", draft_id, "approved_local", {"via": "dashboard"})
+            db.record_event(conn, "draft", draft_id, "approved_local", {"via": source_channel})
+            db.record_voice_learning_event(conn, draft_id, "approved_local", source_channel)
             if notify_telegram and self.config.telegram_enabled:
                 self.telegram.send_message(f"Draft #{draft_id} approved for local posting.")
             return {"status": "approved_local", "tweet_id": ""}
@@ -654,7 +837,8 @@ class XAgentService:
         db.mark_draft_status(conn, draft_id, "posted", posted_tweet_id=tweet_id)
         if draft["candidate_id"]:
             db.set_candidate_status(conn, int(draft["candidate_id"]), "posted")
-        db.record_event(conn, "draft", draft_id, "posted", {"tweet_id": tweet_id})
+        db.record_event(conn, "draft", draft_id, "posted", {"tweet_id": tweet_id, "via": source_channel})
+        db.record_voice_learning_event(conn, draft_id, "posted", source_channel)
         if notify_telegram and self.config.telegram_enabled:
             self.telegram.send_message(
                 f"Posted `{draft['draft_type']}` successfully.\nhttps://x.com/{draft['author_handle']}/status/{tweet_id}"
@@ -819,6 +1003,26 @@ class XAgentService:
             f"DB: {self.config.database_path}\n"
             f"Sources: {[source.key for source in self.config.sources]}"
         )
+
+    def _voice_file_path(self) -> Path:
+        return self.config.root / "profiles" / "default" / "Voice.md"
+
+    def _whoami_file_path(self) -> Path:
+        return self.config.root / "profiles" / "default" / "WhoAmI.md"
+
+    def _humanizer_file_path(self) -> Path:
+        return self.config.root / "profiles" / "default" / "Humanizer.md"
+
+    def _preserve_voice_guardrails(self, current_voice: str, proposed_voice: str) -> str:
+        marker = "## Active Guardrails"
+        current_clean = current_voice.strip()
+        proposed_clean = proposed_voice.strip()
+        if marker not in current_clean:
+            return proposed_clean
+        _current_body, current_guardrails = current_clean.split(marker, 1)
+        proposed_body = proposed_clean.split(marker, 1)[0] if marker in proposed_clean else proposed_clean
+        merged = proposed_body.rstrip() + "\n\n" + marker + current_guardrails
+        return merged.strip()
 
     def _write_status(
         self,

@@ -16,6 +16,8 @@ This repo takes the opposite approach: better source selection, stronger context
 - Optional home timeline scraping as an extra signal source.
 - Local dashboard for ranking, reviewing, and drafting.
 - Voice-aware drafting using your own `WhoAmI.md`, `Voice.md`, and `Humanizer.md`.
+- Local voice memory that learns from approved, rejected, and dashboard-edited drafts.
+- Reviewed `Voice.md` upgrade proposals generated from your real decisions over time.
 - AI-assisted profile setup with questionnaire templates and prompt packs.
 - Editable drafts so you can replace or steer the AI instead of accepting whatever it generated.
 - Local-first approvals by default.
@@ -27,8 +29,9 @@ This repo takes the opposite approach: better source selection, stronger context
 2. Each source gets its own weight.
 3. The worker scrapes recent posts, scores them, and pushes the best candidates into the local dashboard.
 4. You draft a reply, quote reply, or original post in your own voice.
-5. You edit, approve, or mark it as manually posted.
-6. If posting credentials are configured, the app can post through the X API. If not, the draft stays local and copy-ready.
+5. You edit in the dashboard, approve, reject, or mark it as manually posted.
+6. The app saves those decisions locally and uses them to propose better `Voice.md` updates over time.
+7. If posting credentials are configured, the app can post through the X API. If not, the draft stays local and copy-ready.
 
 ## Who This Is For
 - Builders who actively post on X.
@@ -203,6 +206,26 @@ If you have an X archive, use it only as reference material while answering the 
 - No X API credentials: drafts can still be reviewed and approved locally, but posting stays manual.
 - X API credentials configured: the app can post through the official X API.
 - Telegram credentials configured: Telegram can mirror approvals, but the dashboard remains the default workflow.
+
+## Voice Evolution
+This repo includes a local feedback loop for improving `profiles/default/Voice.md` over time.
+
+What it uses:
+- approved drafts
+- rejected drafts
+- drafts you manually edited in the dashboard before approval
+- manually posted drafts saved through the dashboard workflow
+
+How it works:
+- the app stores those signals locally in SQLite
+- once per day, or whenever you trigger it manually, it can run a `Voice Review`
+- the review compares your accepted vs rejected patterns and proposes a new `Voice.md`
+- the dashboard shows a diff and lets you approve or reject the update
+
+Important rules:
+- `Humanizer.md` is treated as fixed and is never auto-rewritten
+- `Voice.md` is never auto-updated silently
+- edits made inside the dashboard are the highest-signal feedback, so prefer editing there before you approve a post
 
 ## Troubleshooting
 - `Missing required profile file(s)`: run `.\scripts\setup.ps1` and fill the files in `profiles/default/`.

@@ -38,12 +38,14 @@ def run_dashboard(host: str = "127.0.0.1", port: int = 8787) -> None:
             flash = parse_qs(parsed.query).get("flash", [""])[0]
             error = parse_qs(parsed.query).get("error", [""])[0]
             status = _read_status(runtime_path)
+            voice_review = service.voice_review_status()
             page = _render_dashboard(
                 root,
                 database_path,
                 status,
                 draft_text_limit,
                 setup_status=service.config.setup_status(),
+                voice_review=voice_review,
                 drafting_enabled=service.config.drafting_enabled,
                 worker_ready=service.config.session_ready and service.config.sources_ready,
                 posting_enabled=service.config.posting_enabled,
@@ -108,6 +110,21 @@ def run_dashboard(host: str = "127.0.0.1", port: int = 8787) -> None:
                     message = _handle_system_action(root, python_exe, worker_python_exe, runtime_path, action)
                     self._redirect(message)
                     return
+                if parsed.path == "/voice-review":
+                    action = form["action"][0]
+                    if action == "run":
+                        result = service.maybe_run_voice_review(force=True)
+                        self._redirect(result["message"], anchor="voice-review")
+                        return
+                    proposal_id = int(form["proposal_id"][0])
+                    if action == "approve":
+                        result = service.approve_voice_review(proposal_id)
+                        self._redirect(result["message"], anchor="voice-review")
+                        return
+                    if action == "reject":
+                        result = service.reject_voice_review(proposal_id)
+                        self._redirect(result["message"], anchor="voice-review")
+                        return
                 self._redirect("Unknown action.", error=True)
             except Exception as exc:
                 self._redirect(str(exc), error=True)
@@ -171,6 +188,7 @@ def _render_dashboard(
     status: dict[str, Any],
     draft_text_limit: int,
     setup_status: dict[str, dict[str, str | bool]],
+    voice_review: dict[str, Any],
     drafting_enabled: bool,
     worker_ready: bool,
     posting_enabled: bool,
@@ -312,6 +330,7 @@ def _render_dashboard(
     setup_html = "".join(
         _setup_status_row(str(item["label"]), bool(item["ok"]), str(item["detail"])) for item in setup_status.values()
     )
+    voice_review_html = _voice_review_card(voice_review=voice_review, drafting_enabled=drafting_enabled)
 
     return f"""<!doctype html>
 <html>
@@ -564,6 +583,49 @@ def _render_dashboard(
     .dev-panel h3 {{
       margin: 0 0 12px;
       font-size: 16px;
+    }}
+    .voice-review-card {{
+      border: 1px solid rgba(119,225,255,.14);
+      border-radius: 20px;
+      padding: 18px;
+      background: linear-gradient(180deg, rgba(8,13,20,.92), rgba(13,20,29,.92));
+    }}
+    .voice-review-top {{
+      display:flex;
+      justify-content:space-between;
+      align-items:flex-start;
+      gap:16px;
+      margin-bottom:12px;
+    }}
+    .voice-review-meta {{
+      display:flex;
+      flex-wrap:wrap;
+      gap:8px;
+      margin: 12px 0;
+    }}
+    .voice-review-pill {{
+      display:inline-flex;
+      align-items:center;
+      padding:6px 10px;
+      border-radius:999px;
+      border:1px solid rgba(255,255,255,.08);
+      background: rgba(255,255,255,.04);
+      color: var(--muted);
+      font-size: 12px;
+    }}
+    .voice-review-summary {{
+      margin: 0 0 12px;
+      color: var(--text);
+      line-height: 1.55;
+      white-space: pre-wrap;
+    }}
+    .voice-diff details {{
+      margin-top: 12px;
+    }}
+    .voice-diff summary {{
+      cursor: pointer;
+      color: var(--accent);
+      font-weight: 700;
     }}
     .draft-cell {{ min-width: 340px; }}
     .draft-form {{ display: grid; gap: 8px; }}
@@ -999,6 +1061,11 @@ def _render_dashboard(
         <h2>Setup Status</h2>
         <div class="setup-grid">{setup_html}</div>
       </section>
+      <section class="card span-12" id="voice-review">
+        <h2>Voice Review</h2>
+        <div class="section-note">The app learns from drafts you approve, reject, and edit in the dashboard. It proposes reviewed updates to <code>Voice.md</code> over time. <code>Humanizer.md</code> stays fixed.</div>
+        {voice_review_html}
+      </section>
       <section class="card span-5">
         <h2>Worker Flow</h2>
         <div class="section-note">{_escape(cadence_copy)}</div>
@@ -1028,11 +1095,11 @@ def _render_dashboard(
           <button class="bad" type="submit" data-busy-label="Resetting local state...">Clear Local History</button>
         </form>
       </section>
-      <section class="card span-12 queue-shell" id="reply-queue">
+        <section class="card span-12 queue-shell" id="reply-queue">
         <div class="queue-header">
           <div>
             <h2>Reply Queue</h2>
-            <div class="section-note">Work through one candidate at a time. Each tweet keeps its draft, edit box, and approval actions attached so you can review without losing context. {'Posting is live through the X API.' if posting_enabled else 'Posting creds are not configured, so approvals stay local and copy-ready.'} {'' if drafting_enabled else 'Draft generation is disabled until Google drafting credentials are configured.'}</div>
+            <div class="section-note">Work through one candidate at a time. Each tweet keeps its draft, edit box, and approval actions attached so you can review without losing context. Edit drafts here before approving if you want voice review to learn from your changes. {'Posting is live through the X API.' if posting_enabled else 'Posting creds are not configured, so approvals stay local and copy-ready.'} {'' if drafting_enabled else 'Draft generation is disabled until Google drafting credentials are configured.'}</div>
           </div>
           <div class="queue-toolbar">
             <span class="queue-counter" data-queue-counter>{len(queue_candidates)} in queue</span>
@@ -1505,6 +1572,93 @@ def _overview_stat_card(label: str, value: str, detail: str) -> str:
         f'<div class="overview-label">{_escape(label)}</div>'
         f'<div class="overview-value">{_escape(value)}</div>'
         f'<p class="overview-detail">{_escape(detail)}</p>'
+        "</div>"
+    )
+
+
+def _voice_review_card(voice_review: dict[str, Any], drafting_enabled: bool) -> str:
+    latest = voice_review.get("latest") or {}
+    pending = voice_review.get("pending") or {}
+    meta_bits = [
+        f'<span class="voice-review-pill">New examples: {_escape(str(voice_review.get("new_examples", 0)))}</span>',
+    ]
+    if latest:
+        meta_bits.append(
+            f'<span class="voice-review-pill">Last review: {_escape(_fmt_time(str(latest.get("created_at") or "")))}</span>'
+        )
+        meta_bits.append(
+            f'<span class="voice-review-pill">Last status: {_escape(str(latest.get("status") or "unknown"))}</span>'
+        )
+    meta_html = "".join(meta_bits)
+    run_button = _post_button(
+        "/voice-review",
+        "action",
+        "run",
+        None,
+        None,
+        "Run Voice Review",
+        "ok",
+        "Running voice review...",
+        disabled=not drafting_enabled,
+        disabled_reason="Set Google drafting credentials before running voice review.",
+    )
+
+    if not pending:
+        return (
+            '<div class="voice-review-card">'
+            '<div class="voice-review-top">'
+            '<div>'
+            '<strong>No pending proposal</strong>'
+            '<p class="voice-review-summary">Run a review after enough approved, rejected, or edited drafts have accumulated. The app uses your dashboard decisions to propose a better Voice.md without touching Humanizer.md.</p>'
+            "</div>"
+            f'<div class="controls">{run_button}</div>'
+            "</div>"
+            f'<div class="voice-review-meta">{meta_html}</div>'
+            "</div>"
+        )
+
+    approve_button = _post_button(
+        "/voice-review",
+        "action",
+        "approve",
+        "proposal_id",
+        str(pending["id"]),
+        "Apply Voice Update",
+        "ok",
+        "Applying voice update...",
+    )
+    reject_button = _post_button(
+        "/voice-review",
+        "action",
+        "reject",
+        "proposal_id",
+        str(pending["id"]),
+        "Reject Proposal",
+        "bad",
+        "Rejecting proposal...",
+    )
+    diff_html = (
+        '<div class="voice-diff">'
+        '<details>'
+        '<summary>View diff</summary>'
+        f'<pre>{_escape(str(pending.get("diff_text") or ""))}</pre>'
+        "</details>"
+        "</div>"
+    )
+    return (
+        '<div class="voice-review-card">'
+        '<div class="voice-review-top">'
+        '<div>'
+        f'<strong>Pending proposal #{_escape(str(pending["id"]))}</strong>'
+        f'<p class="voice-review-summary">{_escape(str(pending.get("summary_text") or ""))}</p>'
+        "</div>"
+        f'<div class="controls">{approve_button}{reject_button}</div>'
+        "</div>"
+        f'<div class="voice-review-meta">{meta_html}'
+        f'<span class="voice-review-pill">Samples used: {_escape(str(pending.get("sample_count") or 0))}</span>'
+        f'<span class="voice-review-pill">Created: {_escape(_fmt_time(str(pending.get("created_at") or "")))}</span>'
+        "</div>"
+        f"{diff_html}"
         "</div>"
     )
 

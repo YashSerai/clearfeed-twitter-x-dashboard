@@ -35,6 +35,10 @@ class WorkerSettings:
     homepage_llm_pool_size: int
     homepage_max_alerts_per_cycle: int
     author_signal_lookback_hours: int
+    voice_review_enabled: bool
+    voice_review_interval_hours: int
+    voice_review_min_examples: int
+    voice_review_max_examples: int
 
 
 @dataclass(slots=True)
