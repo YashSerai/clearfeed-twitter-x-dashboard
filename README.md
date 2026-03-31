@@ -82,6 +82,8 @@ Then:
 
 This launches a normal Chrome or Edge window with remote debugging enabled, lets you log into X there, and then captures storage state from that real browser session.
 
+Regular scraping runs headless by default. If you need visible browser debugging later, set `PLAYWRIGHT_HEADLESS=false` in `.env`.
+
 If you explicitly want to use the managed Playwright browser instead, use:
 
 ```powershell
