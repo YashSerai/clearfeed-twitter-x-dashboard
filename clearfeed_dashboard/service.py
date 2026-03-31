@@ -113,65 +113,48 @@ class XAgentService:
     ) -> dict[str, Any]:
         with managed_connection(self.config.database_path) as conn:
             db.bootstrap(conn)
+            draft = db.get_draft(conn, draft_id)
+            if not draft:
+                raise RuntimeError(f"Draft {draft_id} not found")
+
+            normalized_text = self._normalize_dashboard_draft_text(draft_text)
+            if (
+                normalized_text is not None
+                and str(draft["status"] or "") == "drafted"
+                and normalized_text != str(draft["draft_text"] or "")
+            ):
+                db.update_draft_text(conn, draft_id, normalized_text)
+                db.record_event(conn, "draft", draft_id, "edit_text", {"via": "dashboard", "autosave": True})
+                draft = db.get_draft(conn, draft_id)
+
             if action == "approve":
                 approval = self._approve_draft(conn, draft_id, notify_telegram=notify_telegram, source_channel="dashboard")
                 if approval["status"] == "posted":
                     message = f"Posted draft #{draft_id} as tweet {approval['tweet_id']}."
                 else:
                     message = f"Approved draft #{draft_id} for local posting."
-                return {
-                    "message": message,
-                    "focus_draft_id": draft_id,
-                    "anchor": f"draft-{draft_id}",
-                }
+                return {"message": message}
             if action == "manual":
-                draft = db.get_draft(conn, draft_id)
-                if not draft:
-                    raise RuntimeError(f"Draft {draft_id} not found")
                 db.mark_draft_status(conn, draft_id, "manual_posted")
                 if draft["candidate_id"]:
                     db.set_candidate_status(conn, int(draft["candidate_id"]), "manual_posted")
                 db.record_event(conn, "draft", draft_id, "manual_posted", {"via": "dashboard"})
                 db.record_voice_learning_event(conn, draft_id, "manual_posted", "dashboard")
-                return {
-                    "message": f"Draft #{draft_id} marked as manually posted.",
-                    "focus_draft_id": draft_id,
-                    "anchor": f"draft-{draft_id}",
-                }
+                return {"message": f"Draft #{draft_id} marked as manually posted."}
             if action == "reject":
                 db.mark_draft_status(conn, draft_id, "rejected")
                 db.record_event(conn, "draft", draft_id, "reject", {"via": "dashboard"})
                 db.record_voice_learning_event(conn, draft_id, "rejected", "dashboard")
-                return {
-                    "message": f"Draft #{draft_id} rejected.",
-                    "focus_draft_id": draft_id,
-                    "anchor": f"draft-{draft_id}",
-                }
+                return {"message": f"Draft #{draft_id} rejected."}
             if action == "image":
                 image_path = self._generate_draft_image(conn, draft_id, notify_telegram=notify_telegram)
-                return {
-                    "message": f"Generated image for draft #{draft_id}: {image_path}",
-                    "focus_draft_id": draft_id,
-                    "anchor": f"draft-{draft_id}",
-                }
+                return {"message": f"Generated image for draft #{draft_id}: {image_path}"}
             if action == "save_text":
-                draft = db.get_draft(conn, draft_id)
-                if not draft:
-                    raise RuntimeError(f"Draft {draft_id} not found")
-                normalized = (draft_text or "").strip()
-                if not normalized:
-                    raise RuntimeError("Draft text cannot be empty.")
-                if len(normalized) > self.dashboard_draft_text_limit:
-                    raise RuntimeError(
-                        f"Draft text must be {self.dashboard_draft_text_limit} characters or fewer."
-                    )
-                db.update_draft_text(conn, draft_id, normalized)
-                db.record_event(conn, "draft", draft_id, "edit_text", {"via": "dashboard"})
-                return {
-                    "message": f"Saved draft #{draft_id}.",
-                    "focus_draft_id": draft_id,
-                    "anchor": f"draft-{draft_id}",
-                }
+                normalized = self._normalize_dashboard_draft_text(draft_text, required=True)
+                if normalized != str(draft["draft_text"] or ""):
+                    db.update_draft_text(conn, draft_id, normalized)
+                    db.record_event(conn, "draft", draft_id, "edit_text", {"via": "dashboard"})
+                return {"message": f"Saved draft #{draft_id}."}
         raise ValueError(f"Unknown draft action: {action}")
 
     def create_original_drafts(self, topic: str, notify_telegram: bool = True) -> list[int]:
@@ -1092,6 +1075,20 @@ class XAgentService:
         raise RuntimeError(
             "Drafting is not configured. Run scripts/setup.ps1 and fill the selected AI provider settings in .env."
         )
+
+    def _normalize_dashboard_draft_text(self, draft_text: str | None, required: bool = False) -> str | None:
+        if draft_text is None:
+            return None
+        normalized = draft_text.strip()
+        if not normalized:
+            if required:
+                raise RuntimeError("Draft text cannot be empty.")
+            return None
+        if len(normalized) > self.dashboard_draft_text_limit:
+            raise RuntimeError(
+                f"Draft text must be {self.dashboard_draft_text_limit} characters or fewer."
+            )
+        return normalized
 
     def _candidate_keyboard(self, candidate_id: int) -> dict[str, Any]:
         return inline_keyboard(

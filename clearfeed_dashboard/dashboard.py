@@ -1503,7 +1503,15 @@ def _render_dashboard(
   const postForms = Array.from(document.querySelectorAll('form[method="post"]'));
   postForms.forEach((form) => {{
     form.addEventListener('submit', (event) => {{
-      const editor = form.querySelector('[data-draft-editor]');
+      let editor = form.querySelector('[data-draft-editor]');
+      const draftIdField = form.querySelector('input[name="draft_id"]');
+      const hiddenDraftText = form.querySelector('input[name="draft_text"]');
+      if (!editor && draftIdField && hiddenDraftText) {{
+        editor = document.getElementById(`draft-text-${{draftIdField.value}}`);
+        if (editor) {{
+          hiddenDraftText.value = editor.value;
+        }}
+      }}
       if (editor) {{
         editor.dataset.dirty = 'false';
       }}
@@ -2316,6 +2324,8 @@ def _post_button(
     hidden_fields = [f'<input type="hidden" name="{id_key}" value="{id_value}">']
     if action_key is not None:
         hidden_fields.append(f'<input type="hidden" name="{action_key}" value="{action_value}">')
+    if path == "/draft":
+        hidden_fields.append('<input type="hidden" name="draft_text" value="">')
     css_class = f' class="{css}"' if css else ""
     busy_attr = f' data-busy-label="{_escape(busy_label)}"' if busy_label else ""
     disabled_attr = " disabled" if disabled else ""
