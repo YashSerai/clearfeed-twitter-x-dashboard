@@ -1,8 +1,8 @@
-# X Signal Dashboard
+# Clearfeed: AI X/Twitter Feed Curator & Drafter
 
-Local high-signal X dashboard for builders who want better discovery and faster drafting without turning their account into AI slop.
+Local high-signal X/Twitter dashboard for builders who want better discovery, faster drafting, and a cleaner way to monitor Twitter without mindlessly scrolling all day.
 
-X Signal Dashboard monitors your weighted X Lists and, if you enable it, your home timeline. It ranks the strongest posts, drafts replies in your voice, lets you edit or replace those drafts, and keeps the final approval with a human.
+Clearfeed monitors your weighted X/Twitter Lists and, if you enable it, your home timeline. It ranks the strongest posts, helps you find relevant conversations to reply to, drafts replies in your voice, lets you edit or replace those drafts, and keeps the final approval with a human.
 
 ## Why This Exists
 - Most feeds are noisy.
@@ -57,8 +57,8 @@ You do not need to fill in `.env` before running `bootstrap.ps1` or `setup.ps1`.
 
 ## Quickstart
 ```powershell
-git clone https://github.com/YashSerai/x-signal-dashboard.git "X Signal Dashboard"
-cd "X Signal Dashboard"
+git clone https://github.com/YashSerai/clearfeed-twitter-x-dashboard.git "Clearfeed Twitter X Dashboard"
+cd "Clearfeed Twitter X Dashboard"
 .\scripts\bootstrap.ps1
 .\scripts\setup.ps1
 ```
@@ -226,7 +226,7 @@ Important rules:
 - Approve button does not post: this is expected if X API credentials are not configured.
 - Telegram actions do nothing: Telegram is optional and remains disabled until `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` are configured.
 - Vertex auth failures: verify `GOOGLE_CLOUD_PROJECT` and `GOOGLE_APPLICATION_CREDENTIALS`, then confirm the account has access to the configured models.
-- Performance is worse from a OneDrive-backed path. Prefer cloning to a local folder like `C:\dev\x-signal-dashboard` instead of `C:\Users\...\OneDrive\...`.
+- Performance is worse from a OneDrive-backed path. Prefer cloning to a local folder like `C:\dev\clearfeed-twitter-x-dashboard` instead of `C:\Users\...\OneDrive\...`.
 
 ## Repo Layout
 - `x_signal_dashboard/` application code
