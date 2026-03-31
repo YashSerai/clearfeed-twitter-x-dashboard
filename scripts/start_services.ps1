@@ -6,6 +6,7 @@ $root = Split-Path -Parent $PSScriptRoot
 
 Start-Process powershell -ArgumentList @(
     "-NoProfile",
+    "-NoExit",
     "-ExecutionPolicy",
     "Bypass",
     "-File",
@@ -16,6 +17,7 @@ Start-Sleep -Seconds 1
 
 Start-Process powershell -ArgumentList @(
     "-NoProfile",
+    "-NoExit",
     "-ExecutionPolicy",
     "Bypass",
     "-File",
@@ -23,3 +25,4 @@ Start-Process powershell -ArgumentList @(
 ) -WorkingDirectory $root | Out-Null
 
 Write-Host "Started dashboard and worker in separate PowerShell windows."
+Write-Host "Those windows now stay open if startup fails, so you can see the error instead of the shell closing immediately."
