@@ -37,7 +37,7 @@ def run_dashboard(host: str = "127.0.0.1", port: int = 8787) -> None:
 
             flash = parse_qs(parsed.query).get("flash", [""])[0]
             error = parse_qs(parsed.query).get("error", [""])[0]
-            status = _read_status(runtime_path)
+            status = _read_status(runtime_path, persisted_next_run_at=service._load_worker_next_run_at())
             voice_review = service.voice_review_status()
             page = _render_dashboard(
                 root,
@@ -154,15 +154,25 @@ def run_dashboard(host: str = "127.0.0.1", port: int = 8787) -> None:
     server.serve_forever()
 
 
-def _read_status(path: Path) -> dict[str, Any]:
+def _read_status(path: Path, persisted_next_run_at: datetime | None = None) -> dict[str, Any]:
     if not path.exists():
+        if persisted_next_run_at:
+            return {
+                "pid": None,
+                "state": "stopped",
+                "updated_at": None,
+                "next_run_at": persisted_next_run_at.isoformat(),
+            }
         return {}
     status = json.loads(path.read_text(encoding="utf-8"))
+    if not status.get("next_run_at") and persisted_next_run_at:
+        status["next_run_at"] = persisted_next_run_at.isoformat()
     pid = status.get("pid")
     if pid and not _pid_is_running(pid):
         status["pid"] = None
-        status["next_run_at"] = None
         status["state"] = "stopped"
+        if persisted_next_run_at:
+            status["next_run_at"] = persisted_next_run_at.isoformat()
     return status
 
 
@@ -506,15 +516,19 @@ def _render_dashboard(
     .worker-controls button {{
       width: 100%;
     }}
+    .original-drafts-card {{
+      display:flex;
+      flex-direction:column;
+    }}
     .original-draft-form {{
-      display:grid;
+      display:flex;
+      flex-direction:column;
       gap:12px;
-      min-height: 100%;
-      align-content: stretch;
+      flex: 1 1 auto;
     }}
     .original-topic-input {{
-      min-height: 184px;
-      height: 100%;
+      min-height: 148px;
+      flex: 1 1 auto;
       resize: vertical;
       line-height: 1.55;
     }}
