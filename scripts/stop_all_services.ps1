@@ -12,7 +12,7 @@ $workerProcesses = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
     }
 
 $workerCount = 0
-foreach ($process in ($workerProcesses | ForEach-Object { $_ })) {
+foreach ($process in @($workerProcesses)) {
     Stop-Process -Id $process.ProcessId -Force -ErrorAction SilentlyContinue
     $workerCount += 1
 }
@@ -24,9 +24,8 @@ $dashboardProcesses = Get-CimInstance Win32_Process -ErrorAction SilentlyContinu
         $_.CommandLine -like "*run_dashboard.py*"
     }
 
-if (-not $dashboardProcesses) {
 $dashboardCount = 0
-foreach ($process in ($dashboardProcesses | ForEach-Object { $_ })) {
+foreach ($process in @($dashboardProcesses)) {
     Stop-Process -Id $process.ProcessId -Force -ErrorAction SilentlyContinue
     $dashboardCount += 1
 }
@@ -35,14 +34,14 @@ if (-not $Quiet) {
     if ($workerCount -gt 0) {
         Write-Host "Stopped $workerCount worker process(es)."
     }
-    elseif (-not $dashboardProcesses) {
+    else {
         Write-Host "No worker process found."
     }
 
     if ($dashboardCount -gt 0) {
         Write-Host "Stopped $dashboardCount dashboard process(es)."
     }
-    elseif (-not $workerProcesses) {
+    else {
         Write-Host "No dashboard process found."
     }
 }
