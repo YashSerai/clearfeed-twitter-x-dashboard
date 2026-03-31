@@ -45,6 +45,9 @@ It also asks you which AI provider you want to use:
 - `1` = Vertex
 - `2` = OpenAI-compatible
 
+If `.env` already exists, `setup.ps1` updates provider-related keys in place instead of replacing the whole file.
+Even so, back up one-time secrets before rerunning setup. Some providers only show API keys once.
+
 Then:
 1. Fill in `.env`.
 2. Build `profiles/default/WhoAmI.md`.

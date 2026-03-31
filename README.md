@@ -107,6 +107,7 @@ cd "Clearfeed Twitter X Dashboard"
 ```
 
 `setup.ps1` asks which AI provider you want to use and scaffolds the relevant env keys for that path.
+If `.env` already exists, it updates provider-related keys in place rather than replacing the whole file, but you should still back up one-time secrets before rerunning setup.
 
 Then:
 1. Fill in `.env`.

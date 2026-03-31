@@ -53,6 +53,8 @@ if (-not (Test-Path ".\\.env")) {
     Write-Host "Created .env from .env.example"
 } else {
     Write-Host ".env already exists"
+    Write-Host "Setup will update provider-related keys in your existing .env."
+    Write-Host "It does not replace the whole file, but you should still back up one-time secrets before rerunning setup."
 }
 
 Write-Host ""
