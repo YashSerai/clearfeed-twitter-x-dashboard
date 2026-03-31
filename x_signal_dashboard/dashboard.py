@@ -502,6 +502,7 @@ def _render_dashboard(
       border-radius: 12px;
       cursor: pointer;
       font-weight: 600;
+      white-space: nowrap;
     }}
     button:hover {{ border-color: var(--accent); }}
     button.bad {{ border-color: rgba(251,113,133,.35); color: var(--bad); }}
@@ -1066,7 +1067,7 @@ def _render_dashboard(
         <div class="section-note">The app learns from drafts you approve, reject, and edit in the dashboard. It proposes reviewed updates to <code>Voice.md</code> over time. <code>Humanizer.md</code> stays fixed.</div>
         {voice_review_html}
       </section>
-      <section class="card span-5">
+      <section class="card span-4">
         <h2>Worker Flow</h2>
         <div class="section-note">{_escape(cadence_copy)}</div>
         <ul class="stats">{workflow_html}</ul>
@@ -1088,11 +1089,11 @@ def _render_dashboard(
         </form>
         {'' if drafting_enabled else '<div class="inline-warning">Original drafting is disabled until Google drafting credentials are configured in <code>.env</code>.</div>'}
       </section>
-      <section class="card span-3">
-        <h2>Workspace Reset</h2>
-        <div class="section-note">Clears local candidates, drafts, approvals, and Telegram message references. It does not touch your <code>.env</code>, source config, or profile files.</div>
+      <section class="card span-4">
+        <h2>Reset History</h2>
+        <div class="section-note">Clears local queue, drafts, approvals, and voice-review history. Keeps your <code>.env</code>, sources, and profile files.</div>
         <form method="post" action="/reset" onsubmit="return confirm('Reset local state and clear tracked drafts, candidates, and optional Telegram message references?');">
-          <button class="bad" type="submit" data-busy-label="Resetting local state...">Clear Local History</button>
+          <button class="bad" type="submit" data-busy-label="Resetting local state...">Clear History</button>
         </form>
       </section>
         <section class="card span-12 queue-shell" id="reply-queue">
