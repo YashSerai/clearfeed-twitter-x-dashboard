@@ -588,13 +588,59 @@ def _render_dashboard(
       font-size: 13px;
     }}
     .command-block {{ margin-bottom: 12px; }}
+    .command-block:last-child {{ margin-bottom: 0; }}
     .command-label {{ color: var(--muted); font-size: 13px; margin-bottom: 6px; }}
+    .dev-details {{
+      border: 1px solid rgba(255,255,255,.07);
+      border-radius: 20px;
+      background: rgba(8,14,21,.45);
+      overflow: hidden;
+    }}
     .dev-details summary {{
       cursor: pointer;
       font-weight: 700;
       list-style: none;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      padding: 18px 20px;
     }}
     .dev-details summary::-webkit-details-marker {{ display:none; }}
+    .dev-summary-copy {{
+      display: grid;
+      gap: 4px;
+      min-width: 0;
+    }}
+    .dev-summary-title {{
+      color: var(--text);
+      font-size: 16px;
+      line-height: 1.2;
+    }}
+    .dev-summary-subtitle {{
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.45;
+    }}
+    .dev-chevron {{
+      color: var(--muted);
+      font-size: 14px;
+      transition: transform 160ms ease, color 160ms ease;
+      flex: 0 0 auto;
+    }}
+    .dev-details[open] .dev-chevron {{
+      transform: rotate(180deg);
+      color: var(--accent);
+    }}
+    .dev-details-body {{
+      padding: 0 20px 20px;
+    }}
+    .dev-details-note {{
+      margin: 0 0 18px;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.5;
+    }}
     .dev-stack {{ display:grid; gap:16px; margin-top:16px; }}
     .dev-split {{ display:grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap:16px; }}
     .dev-panel {{
@@ -606,6 +652,30 @@ def _render_dashboard(
     .dev-panel h3 {{
       margin: 0 0 12px;
       font-size: 16px;
+    }}
+    .command-details {{
+      border: 1px solid rgba(255,255,255,.07);
+      border-radius: 16px;
+      background: rgba(8,14,21,.35);
+      overflow: hidden;
+    }}
+    .command-details summary {{
+      cursor: pointer;
+      list-style: none;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 14px 16px;
+      font-weight: 700;
+    }}
+    .command-details summary::-webkit-details-marker {{ display:none; }}
+    .command-details-body {{
+      padding: 0 16px 16px;
+    }}
+    .command-details[open] .dev-chevron {{
+      transform: rotate(180deg);
+      color: var(--accent);
     }}
     .voice-review-card {{
       border: 1px solid rgba(119,225,255,.14);
@@ -1152,14 +1222,21 @@ def _render_dashboard(
       </section>
       <section class="card span-12">
         <details class="dev-details">
-          <summary>Developer Tools</summary>
-          <div class="section-note">Optional logs and process details for debugging local runs. Most users can ignore this section.</div>
-          <div class="dev-stack">
-            <div class="dev-panel">
-              <h3>Recent Runs</h3>
-              <table>
-                <thead>
-                  <tr><th>ID</th><th>Status</th><th>Started</th><th>Finished</th><th>Notes</th></tr>
+          <summary>
+            <span class="dev-summary-copy">
+              <span class="dev-summary-title">Developer Tools</span>
+              <span class="dev-summary-subtitle">Optional logs and process details for debugging local runs.</span>
+            </span>
+            <span class="dev-chevron" aria-hidden="true">&#9662;</span>
+          </summary>
+          <div class="dev-details-body">
+            <div class="dev-details-note">Most users can ignore this section.</div>
+            <div class="dev-stack">
+              <div class="dev-panel">
+                <h3>Recent Runs</h3>
+                <table>
+                  <thead>
+                    <tr><th>ID</th><th>Status</th><th>Started</th><th>Finished</th><th>Notes</th></tr>
                 </thead>
                 <tbody>{runs_html}</tbody>
               </table>
@@ -1183,9 +1260,15 @@ def _render_dashboard(
                 <pre>{_escape(launcher_log)}</pre>
               </div>
             </div>
-            <div class="dev-panel">
-              <h3>Helpful Commands</h3>
-              {commands_html}
+            <details class="command-details">
+              <summary>
+                <span>Helpful Commands</span>
+                <span class="dev-chevron" aria-hidden="true">&#9662;</span>
+              </summary>
+              <div class="command-details-body">
+                {commands_html}
+              </div>
+            </details>
             </div>
           </div>
         </details>
