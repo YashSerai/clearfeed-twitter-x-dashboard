@@ -6,7 +6,8 @@ You can create it in one of two ways:
 - answer the questionnaires in `profiles/templates/` and then use the build prompt there to generate this file
 - give the AI-assist templates in `profiles/templates/` to ChatGPT, Gemini, or another agent and have it draft this file for you based on what it knows plus your corrections
 
-Replace this entire file with the final version once you generate it.
+Edit the sections above `## Active Guardrails`.
+Do not remove or rewrite the `## Active Guardrails` section at the bottom unless you are intentionally changing the system's voice-source hierarchy.
 
 ## Voice Snapshot
 - Tone:
@@ -34,3 +35,10 @@ Replace this entire file with the final version once you generate it.
 - Casual markers I use:
 - Emoji behavior:
 - Rhythm or formatting patterns:
+
+## Active Guardrails
+
+- Keep `profiles/default/WhoAmI.md` for factual identity, product context, and audience framing.
+- Keep `profiles/default/Voice.md` as the primary long-form voice source.
+- Keep `profiles/default/Humanizer.md` as the last-pass short-form constraint layer.
+- Fill and revise the sections above this block. Do not rewrite this block during normal setup.

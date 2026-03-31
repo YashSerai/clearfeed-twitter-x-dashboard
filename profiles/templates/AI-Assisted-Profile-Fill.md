@@ -16,6 +16,7 @@ Task:
 3. If something is uncertain, mark it clearly as "Needs user confirmation".
 4. Do not invent flattering brand copy.
 5. Keep the answers useful for a writing assistant.
+6. Do not rewrite any `## Active Guardrails` section if I provide one separately.
 
 Output:
 - First, return a completed WhoAmI Questionnaire.
@@ -28,3 +29,4 @@ Output:
 - A few example posts
 - Your current project or area of focus
 - Any topics or styles you want to avoid
+- If you already have final `WhoAmI.md`, `Voice.md`, or `Humanizer.md` files, treat their guardrail sections as fixed instructions

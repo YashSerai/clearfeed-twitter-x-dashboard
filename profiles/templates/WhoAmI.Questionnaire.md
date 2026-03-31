@@ -1,6 +1,7 @@
 # WhoAmI Questionnaire
 
 Answer these questions in short plain language. Keep it messy and honest.
+These answers should be used to fill the editable sections of `profiles/default/WhoAmI.md`, not to replace its fixed `## Active Guardrails` block.
 
 ## Basics
 Q: What name should appear in your profile packet?

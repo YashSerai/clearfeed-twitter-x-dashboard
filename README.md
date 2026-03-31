@@ -109,6 +109,8 @@ This repo uses three local files as the voice packet:
 - `profiles/default/Voice.md`
 - `profiles/default/Humanizer.md`
 
+`WhoAmI.md` and `Voice.md` now include a fixed `## Active Guardrails` block at the bottom. Fill the editable sections above that block, but leave the guardrails unchanged unless you are intentionally changing how the system composes identity, voice, and humanizer context.
+
 There are two setup paths:
 
 ### Option 1: AI-Assisted Fill
@@ -130,6 +132,7 @@ Answer the questionnaires yourself, then paste those answers into the build prom
 - `profiles/default/Voice.md`
 
 This gives users a much better starting point than writing voice docs from scratch.
+The build prompt explicitly preserves the fixed guardrails block in both final files.
 
 If you have an X archive, use it only as reference material while answering the voice questionnaire. Public v1 does not ingest archives directly.
 

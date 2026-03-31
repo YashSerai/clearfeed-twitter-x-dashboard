@@ -1,6 +1,7 @@
 # Voice Questionnaire
 
 Answer these questions with examples where possible. If you have an X archive, use it as reference material only.
+These answers should be used to fill the editable sections of `profiles/default/Voice.md`, not to replace its fixed `## Active Guardrails` block.
 
 ## Tone
 Q: If someone reads 10 of your posts in a row, what tone should they notice?
