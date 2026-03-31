@@ -74,10 +74,18 @@ Then:
 3. Build `profiles/default/Voice.md`.
 4. Add your feed URLs and weights in `.env` or `data/sources/x_sources.yaml`.
 5. Optionally set `HOME_TIMELINE_ENABLED=true`.
-6. Save a logged-in X session:
+6. Save a logged-in X session using the default real-browser capture flow:
 
 ```powershell
 .\scripts\capture-x-session.ps1
+```
+
+This launches a normal Chrome or Edge window with remote debugging enabled, lets you log into X there, and then captures storage state from that real browser session.
+
+If you explicitly want to use the managed Playwright browser instead, use:
+
+```powershell
+.\scripts\capture-x-session.ps1 -UseManagedBrowser
 ```
 
 7. Start the dashboard:
@@ -144,6 +152,8 @@ If you have an X archive, use it only as reference material while answering the 
 ## Troubleshooting
 - `Missing required profile file(s)`: run `.\scripts\setup.ps1` and fill the files in `profiles/default/`.
 - `Missing Playwright session state`: run `.\scripts\capture-x-session.ps1` after logging into X.
+- Want to avoid X login issues in Playwright: use the default `.\scripts\capture-x-session.ps1` flow, which captures from a real Chrome or Edge session over CDP.
+- Want to try the old managed-browser path anyway: run `.\scripts\capture-x-session.ps1 -UseManagedBrowser`.
 - Dashboard opens but nothing appears: make sure at least one list URL is set, or enable home timeline discovery.
 - Approve button does not post: this is expected if X API credentials are not configured.
 - Telegram actions do nothing: Telegram is optional and remains disabled until `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` are configured.
