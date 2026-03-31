@@ -180,8 +180,6 @@ def _render_dashboard(
     flash: str = "",
     error: str = "",
 ) -> str:
-    summary_rows = _query_rows(database_path, "select status, count(*) as c from candidates group by status order by status")
-    draft_rows = _query_rows(database_path, "select status, count(*) as c from drafts group by status order by status")
     latest_runs = _query_rows(
         database_path,
         "select id, status, started_at, finished_at, notes from run_logs order by id desc limit 5",
@@ -232,6 +230,7 @@ def _render_dashboard(
         limit 12
         """,
     )
+    overview_stats = _overview_stats(database_path, live_queue_count=len(queue_candidates))
 
     worker_state = status.get("state", "unknown")
     updated_at = status.get("updated_at")
@@ -239,11 +238,6 @@ def _render_dashboard(
     next_run_countdown = _countdown_text(next_run_at)
     last_error = status.get("last_error")
     process_rows = _process_rows()
-    task_info = _scheduled_task_info(
-        status_next_run_at=status.get("next_run_at"),
-        worker_min_delay_minutes=worker_min_delay_minutes,
-        worker_max_delay_minutes=worker_max_delay_minutes,
-    )
     worker_log = _tail_file(root / "logs" / "worker.log")
     launcher_log = _tail_file(root / "logs" / "launcher.log")
     commands = _command_snippets(root)
@@ -262,12 +256,21 @@ def _render_dashboard(
     else:
         state_badge = badge("Worker Unknown", "warn")
 
-    summary_html = "".join(
-        f"<li><strong>{row['status']}</strong><span>{row['c']}</span></li>" for row in summary_rows
-    ) or "<li><strong>none</strong><span>0</span></li>"
-    draft_html = "".join(
-        f"<li><strong>{row['status']}</strong><span>{row['c']}</span></li>" for row in draft_rows
-    ) or "<li><strong>none</strong><span>0</span></li>"
+    worker_state_labels = {
+        "sleeping": "Sleeping",
+        "running": "Running",
+        "stopped": "Stopped",
+        "error": "Error",
+        "starting": "Starting",
+    }
+    worker_state_label = worker_state_labels.get(str(worker_state), "Unknown")
+    cadence_copy = (
+        f"Windows launches the worker at sign-in. After that it checks for fresh tweets every "
+        f"{worker_min_delay_minutes}-{worker_max_delay_minutes} minutes."
+    )
+    overview_html = "".join(
+        _overview_stat_card(item["label"], item["value"], item["detail"]) for item in overview_stats
+    )
     runs_html = "".join(
         f"<tr><td>{row['id']}</td><td>{row['status']}</td><td>{_fmt_time(row['started_at'])}</td><td>{_fmt_time(row['finished_at'])}</td><td>{_escape(row['notes'] or '')}</td></tr>"
         for row in latest_runs
@@ -297,8 +300,14 @@ def _render_dashboard(
         f"<div class='command-block'><div class='command-label'>{_escape(label)}</div><pre>{_escape(cmd)}</pre></div>"
         for label, cmd in commands
     )
-    task_html = "".join(
-        f"<li><strong>{_escape(key)}</strong><span>{_escape(value)}</span></li>" for key, value in task_info.items()
+    workflow_html = "".join(
+        f"<li><strong>{_escape(key)}</strong><span>{_escape(value)}</span></li>"
+        for key, value in [
+            ("Status", worker_state_label),
+            ("Last update", _fmt_time(updated_at)),
+            ("Next scan", next_run_countdown),
+            ("Cadence", f"{worker_min_delay_minutes}-{worker_max_delay_minutes} min"),
+        ]
     )
     setup_html = "".join(
         _setup_status_row(str(item["label"]), bool(item["ok"]), str(item["detail"])) for item in setup_status.values()
@@ -343,12 +352,32 @@ def _render_dashboard(
       box-shadow: var(--shadow);
     }}
     .hero h1 {{
-      margin: 0 0 8px;
-      font-size: 34px;
-      font-family: "Aptos Display", "Aptos", "Segoe UI Variable Display", sans-serif;
-      letter-spacing: -.03em;
+        margin: 0 0 8px;
+        font-size: 34px;
+        font-family: "Aptos Display", "Aptos", "Segoe UI Variable Display", sans-serif;
+        letter-spacing: -.03em;
+      }}
+    .hero-kicker {{
+      margin-bottom: 10px;
+      color: var(--accent);
+      font-size: 12px;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+      font-weight: 700;
     }}
     .hero p {{ margin: 0; color: var(--muted); max-width: 720px; line-height: 1.5; }}
+    .hero-meta-row {{ display:flex; flex-wrap:wrap; gap:10px; margin-top:16px; }}
+    .hero-meta-pill {{
+      display:inline-flex;
+      align-items:center;
+      gap:6px;
+      padding:8px 12px;
+      border-radius:999px;
+      border:1px solid rgba(255,255,255,.10);
+      background: rgba(255,255,255,.05);
+      color: var(--text);
+      font-size: 12px;
+    }}
     .badge {{ display:inline-block; padding: 8px 12px; border-radius: 999px; font-weight: 700; font-size: 13px; }}
     .countdown {{ margin-top: 10px; color: var(--muted); font-size: 13px; text-align: right; }}
     .hero-side {{
@@ -410,6 +439,34 @@ def _render_dashboard(
     .badge-mini {{ padding:4px 8px; border-radius:999px; font-size:12px; font-weight:700; }}
     .badge-mini-ok {{ color: var(--ok); background: rgba(52,211,153,.12); }}
     .badge-mini-warn {{ color: var(--warn); background: rgba(247,199,95,.12); }}
+    .overview-grid {{ display:grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap:12px; }}
+    .overview-card {{
+      min-width:0;
+      padding:14px;
+      border-radius:18px;
+      border:1px solid rgba(255,255,255,.08);
+      background: rgba(255,255,255,.03);
+    }}
+    .overview-label {{
+      color: var(--muted);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+      margin-bottom: 8px;
+    }}
+    .overview-value {{
+      font-size: 34px;
+      font-weight: 700;
+      line-height: 1;
+      margin-bottom: 8px;
+      color: var(--text);
+    }}
+    .overview-detail {{
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.4;
+      margin: 0;
+    }}
     table {{ width:100%; border-collapse: collapse; font-size: 14px; }}
     th, td {{ text-align:left; padding: 10px 8px; border-bottom:1px solid rgba(255,255,255,.06); vertical-align: top; }}
     th {{ color: var(--muted); font-weight: 600; }}
@@ -490,6 +547,24 @@ def _render_dashboard(
     }}
     .command-block {{ margin-bottom: 12px; }}
     .command-label {{ color: var(--muted); font-size: 13px; margin-bottom: 6px; }}
+    .dev-details summary {{
+      cursor: pointer;
+      font-weight: 700;
+      list-style: none;
+    }}
+    .dev-details summary::-webkit-details-marker {{ display:none; }}
+    .dev-stack {{ display:grid; gap:16px; margin-top:16px; }}
+    .dev-split {{ display:grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap:16px; }}
+    .dev-panel {{
+      padding:16px;
+      border-radius:18px;
+      border:1px solid rgba(255,255,255,.07);
+      background: rgba(8,14,21,.45);
+    }}
+    .dev-panel h3 {{
+      margin: 0 0 12px;
+      font-size: 16px;
+    }}
     .draft-cell {{ min-width: 340px; }}
     .draft-form {{ display: grid; gap: 8px; }}
     .draft-editor {{
@@ -858,7 +933,9 @@ def _render_dashboard(
     }}
     @media (max-width: 1100px) {{
       .span-4, .span-5, .span-6, .span-7, .span-8 {{ grid-column: span 12; }}
+      .overview-grid {{ grid-template-columns: repeat(3, minmax(0, 1fr)); }}
       .setup-grid {{ grid-template-columns: repeat(3, minmax(0, 1fr)); }}
+      .dev-split {{ grid-template-columns: 1fr; }}
       .queue-layout,
       .queue-card,
       .original-drafts-grid {{ grid-template-columns: 1fr; }}
@@ -869,6 +946,7 @@ def _render_dashboard(
       .wrap {{ padding: 16px; }}
       .hero {{ padding: 20px; border-radius: 20px; flex-direction: column; align-items: flex-start; }}
       .hero h1 {{ font-size: 28px; }}
+      .overview-grid {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
       .setup-grid {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
       .tweet-body {{ font-size: 16px; }}
       .tweet-head {{ flex-direction: column; align-items: flex-start; }}
@@ -885,15 +963,21 @@ def _render_dashboard(
     }}
   </style>
 </head>
-<body>
-  <div class="wrap">
-    <div class="hero">
-      <div>
-        <h1>X Signal Dashboard</h1>
-        <p>Local control surface for high-signal list discovery, optional home timeline ranking, draft generation, and human-in-the-loop approvals. {'Telegram is enabled as an optional mirror.' if telegram_enabled else 'Telegram is optional and currently disabled.'}</p>
-      </div>
-      <div class="hero-side">
-        {state_badge}
+  <body>
+    <div class="wrap">
+      <div class="hero">
+        <div>
+          <div class="hero-kicker">Local X Workflow</div>
+          <h1>X Signal Dashboard</h1>
+          <p>Review high-signal tweets from your weighted lists, draft replies in your own voice, and approve what actually goes out. Tweets, drafts, and decisions stay local so you can refine the workflow over time.</p>
+          <div class="hero-meta-row">
+            <span class="hero-meta-pill">Discovery: weighted lists + optional home</span>
+            <span class="hero-meta-pill">{'Posting: X API live' if posting_enabled else 'Posting: local approvals only'}</span>
+            <span class="hero-meta-pill">{'Telegram mirror: on' if telegram_enabled else 'Telegram mirror: off'}</span>
+          </div>
+        </div>
+        <div class="hero-side">
+          {state_badge}
         <div class="countdown" id="next-run-countdown" data-next-run="{_escape(next_run_at or '')}">
           Next run: {_escape(next_run_countdown)}
         </div>
@@ -906,61 +990,49 @@ def _render_dashboard(
     {flash_html}
     {error_html}
     <div class="grid">
-      <section class="card span-4">
-        <h2>Worker</h2>
-        <div class="meta">
-          <div><strong>Updated:</strong> {_fmt_time(updated_at)}</div>
-          <div><strong>Next run:</strong> {_fmt_time(next_run_at)}</div>
-          <div><strong>PID:</strong> {_escape(str(status.get('pid', 'unknown')))}</div>
-        </div>
-        {f'<div class="error"><strong>Last error:</strong> {_escape(last_error)}</div>' if last_error else ''}
-      </section>
-      <section class="card span-4">
-        <h2>Candidates</h2>
-        <ul class="stats">{summary_html}</ul>
-      </section>
-      <section class="card span-4">
-        <h2>Drafts</h2>
-        <ul class="stats">{draft_html}</ul>
+      <section class="card span-12">
+        <h2>Overview</h2>
+        <div class="section-note">A quick read on how much signal the dashboard has collected and what happened to your drafts.</div>
+        <div class="overview-grid">{overview_html}</div>
       </section>
       <section class="card span-12">
         <h2>Setup Status</h2>
         <div class="setup-grid">{setup_html}</div>
       </section>
-      <section class="card span-8">
-        <h2>System Controls</h2>
+      <section class="card span-5">
+        <h2>Worker Flow</h2>
+        <div class="section-note">{_escape(cadence_copy)}</div>
+        <ul class="stats">{workflow_html}</ul>
         <div class="controls">
           {_post_button('/system', 'action', 'start', None, None, 'Start Worker', 'ok', 'Starting worker...', disabled=not worker_ready, disabled_reason='Configure at least one source and capture an X session before starting the worker.')}
           {_post_button('/system', 'action', 'stop', None, None, 'Stop Worker', 'bad', 'Stopping worker...')}
           {_post_button('/system', 'action', 'restart', None, None, 'Restart Worker', '', 'Restarting worker...', disabled=not worker_ready, disabled_reason='Configure at least one source and capture an X session before restarting the worker.')}
           {_post_button('/system', 'action', 'run_cycle', None, None, 'Run Cycle Now', '', 'Running a cycle now...', disabled=not worker_ready, disabled_reason='Configure at least one source and capture an X session before running a cycle.')}
         </div>
-        <div class="meta" style="margin-top:10px;">The dashboard stays online. These controls only stop or restart the worker loop.</div>
+        {f'<div class="error"><strong>Last error:</strong> {_escape(last_error)}</div>' if last_error else ''}
         {'' if worker_ready else '<div class="inline-warning">Worker actions are disabled until an X session is captured and at least one source is configured.</div>'}
       </section>
       <section class="card span-4">
-        <h2>Scheduled Task</h2>
-        <ul class="stats">{task_html}</ul>
-      </section>
-      <section class="card span-8">
         <h2>Create Original Drafts</h2>
+        <div class="section-note">Use this for standalone posts that are not tied to a tweet in the reply queue.</div>
         <form method="post" action="/original">
           <input type="text" name="topic" placeholder="Optional topic, for example: new OpenAI parameter changes">
           <button class="ok" type="submit" data-busy-label="Generating original drafts..."{' disabled title="Set GOOGLE_CLOUD_PROJECT and GOOGLE_APPLICATION_CREDENTIALS to enable original drafting."' if not drafting_enabled else ''}>Generate Original Drafts</button>
         </form>
         {'' if drafting_enabled else '<div class="inline-warning">Original drafting is disabled until Google drafting credentials are configured in <code>.env</code>.</div>'}
       </section>
-      <section class="card span-4">
-        <h2>Maintenance</h2>
+      <section class="card span-3">
+        <h2>Workspace Reset</h2>
+        <div class="section-note">Clears local candidates, drafts, approvals, and Telegram message references. It does not touch your <code>.env</code>, source config, or profile files.</div>
         <form method="post" action="/reset" onsubmit="return confirm('Reset local state and clear tracked drafts, candidates, and optional Telegram message references?');">
-          <button class="bad" type="submit" data-busy-label="Resetting local state...">Reset Local State</button>
+          <button class="bad" type="submit" data-busy-label="Resetting local state...">Clear Local History</button>
         </form>
       </section>
       <section class="card span-12 queue-shell" id="reply-queue">
         <div class="queue-header">
           <div>
             <h2>Reply Queue</h2>
-            <div class="section-note">Review one tweet at a time. Drafts stay attached to the tweet card, so pressing <strong>Draft Reply</strong> drops the editable reply directly underneath. {'Posting is live through the X API.' if posting_enabled else 'Posting creds are not configured, so approvals stay local and copy-ready.'} {'' if drafting_enabled else 'Draft generation is disabled until Google drafting credentials are configured.'}</div>
+            <div class="section-note">Work through one candidate at a time. Each tweet keeps its draft, edit box, and approval actions attached so you can review without losing context. {'Posting is live through the X API.' if posting_enabled else 'Posting creds are not configured, so approvals stay local and copy-ready.'} {'' if drafting_enabled else 'Draft generation is disabled until Google drafting credentials are configured.'}</div>
           </div>
           <div class="queue-toolbar">
             <span class="queue-counter" data-queue-counter>{len(queue_candidates)} in queue</span>
@@ -971,50 +1043,60 @@ def _render_dashboard(
         </div>
         <div class="queue-layout" data-queue-root>
           <div class="queue-stage">
-            {queue_cards_html or '<div class="queue-empty" data-queue-empty><div><h3>No live candidates</h3><p class="empty-note">Run a new cycle or wait for the worker to surface fresh tweets.</p></div></div>'}
+            {queue_cards_html or '<div class="queue-empty" data-queue-empty><div><h3>No tweets waiting for review</h3><p class="empty-note">Run a cycle or wait for the worker to surface fresh posts from your configured sources.</p></div></div>'}
           </div>
           <aside class="queue-rail">
-            <div class="queue-rail-label">Queue rail</div>
+            <div class="queue-rail-label">Jump List</div>
             {queue_nav_html or '<p class="empty-note">No cards waiting.</p>'}
           </aside>
         </div>
       </section>
       <section class="card span-12" id="latest-drafts">
         <h2>Original Drafts</h2>
-        <div class="section-note">Standalone drafts created from the topic box stay here. Reply drafts now live inside the reply queue cards above.</div>
+        <div class="section-note">Standalone drafts created from the topic box stay here. Reply drafts stay inside the queue cards above.</div>
         <div class="original-drafts-grid">
           {original_drafts_html or '<p class="empty-note">No standalone drafts yet.</p>'}
         </div>
       </section>
       <section class="card span-12">
-        <h2>Recent Runs</h2>
-        <table>
-          <thead>
-            <tr><th>ID</th><th>Status</th><th>Started</th><th>Finished</th><th>Notes</th></tr>
-          </thead>
-          <tbody>{runs_html}</tbody>
-        </table>
-      </section>
-      <section class="card span-12">
-        <h2>Live Processes</h2>
-        <table>
-          <thead>
-            <tr><th>PID</th><th>Name</th><th>Command</th></tr>
-          </thead>
-          <tbody>{process_html}</tbody>
-        </table>
-      </section>
-      <section class="card span-6">
-        <h2>Worker Log Tail</h2>
-        <pre>{_escape(worker_log)}</pre>
-      </section>
-      <section class="card span-6">
-        <h2>Launcher Log Tail</h2>
-        <pre>{_escape(launcher_log)}</pre>
-      </section>
-      <section class="card span-12">
-        <h2>Helpful Commands</h2>
-        {commands_html}
+        <details class="dev-details">
+          <summary>Developer Tools</summary>
+          <div class="section-note">Optional logs and process details for debugging local runs. Most users can ignore this section.</div>
+          <div class="dev-stack">
+            <div class="dev-panel">
+              <h3>Recent Runs</h3>
+              <table>
+                <thead>
+                  <tr><th>ID</th><th>Status</th><th>Started</th><th>Finished</th><th>Notes</th></tr>
+                </thead>
+                <tbody>{runs_html}</tbody>
+              </table>
+            </div>
+            <div class="dev-panel">
+              <h3>Live Processes</h3>
+              <table>
+                <thead>
+                  <tr><th>PID</th><th>Name</th><th>Command</th></tr>
+                </thead>
+                <tbody>{process_html}</tbody>
+              </table>
+            </div>
+            <div class="dev-split">
+              <div class="dev-panel">
+                <h3>Worker Log Tail</h3>
+                <pre>{_escape(worker_log)}</pre>
+              </div>
+              <div class="dev-panel">
+                <h3>Launcher Log Tail</h3>
+                <pre>{_escape(launcher_log)}</pre>
+              </div>
+            </div>
+            <div class="dev-panel">
+              <h3>Helpful Commands</h3>
+              {commands_html}
+            </div>
+          </div>
+        </details>
       </section>
     </div>
   </div>
@@ -1373,6 +1455,57 @@ def _queue_jump_button(row: sqlite3.Row) -> str:
         f"<small>{_escape(badge)}</small>"
         f"<small>{_escape(preview or 'No text captured for this tweet.')}</small>"
         "</button>"
+    )
+
+
+def _overview_stats(database_path: Path, live_queue_count: int) -> list[dict[str, str]]:
+    conn = sqlite3.connect(database_path)
+    try:
+        collected = int(conn.execute("select count(*) from scraped_posts").fetchone()[0])
+        reply_drafts = int(
+            conn.execute("select count(*) from drafts where draft_type in ('reply', 'quote_reply')").fetchone()[0]
+        )
+        approved_replies = int(
+            conn.execute(
+                """
+                select count(*)
+                from drafts
+                where draft_type in ('reply', 'quote_reply')
+                  and status in ('approved_local', 'posted', 'manual_posted')
+                """
+            ).fetchone()[0]
+        )
+        posted_replies = int(
+            conn.execute(
+                """
+                select count(*)
+                from drafts
+                where draft_type in ('reply', 'quote_reply')
+                  and status in ('posted', 'manual_posted')
+                """
+            ).fetchone()[0]
+        )
+        rejected = int(conn.execute("select count(*) from drafts where status = 'rejected'").fetchone()[0])
+    finally:
+        conn.close()
+
+    return [
+        {"label": "Tweets Collected", "value": str(collected), "detail": "Saved from your sources."},
+        {"label": "Live Queue", "value": str(live_queue_count), "detail": "Waiting for review."},
+        {"label": "Reply Drafts", "value": str(reply_drafts), "detail": "Generated from candidate tweets."},
+        {"label": "Approved Replies", "value": str(approved_replies), "detail": "Accepted by you."},
+        {"label": "Posted Replies", "value": str(posted_replies), "detail": "Sent or marked sent."},
+        {"label": "Rejected Drafts", "value": str(rejected), "detail": "Useful for voice tuning later."},
+    ]
+
+
+def _overview_stat_card(label: str, value: str, detail: str) -> str:
+    return (
+        '<div class="overview-card">'
+        f'<div class="overview-label">{_escape(label)}</div>'
+        f'<div class="overview-value">{_escape(value)}</div>'
+        f'<p class="overview-detail">{_escape(detail)}</p>'
+        "</div>"
     )
 
 
