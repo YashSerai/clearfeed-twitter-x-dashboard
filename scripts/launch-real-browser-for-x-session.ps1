@@ -1,4 +1,4 @@
-param(
+﻿param(
     [ValidateSet("auto", "chrome", "edge")]
     [string]$Browser = "auto",
     [int]$Port = 9222
@@ -28,7 +28,7 @@ if (-not $browserPath) {
     throw "Could not find Chrome or Edge. Install one of them or set PLAYWRIGHT_BROWSER_EXECUTABLE for the managed-browser flow."
 }
 
-$profileRoot = Join-Path $env:TEMP "x-signal-dashboard-cdp"
+$profileRoot = Join-Path $env:TEMP "clearfeed-twitter-x-dashboard-cdp"
 New-Item -ItemType Directory -Force -Path $profileRoot | Out-Null
 
 $args = @(
@@ -43,3 +43,4 @@ Write-Host "Profile: $profileRoot"
 Write-Host "Log into X in that window, then return to the terminal to save the session."
 
 Start-Process -FilePath $browserPath -ArgumentList $args | Out-Null
+

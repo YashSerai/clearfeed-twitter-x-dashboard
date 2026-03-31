@@ -1,2 +1,0 @@
-"""X agent package."""
-

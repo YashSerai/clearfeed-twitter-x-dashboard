@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$TaskName = "YashXAgentWorker"
 )
 
@@ -25,8 +25,9 @@ Register-ScheduledTask `
     -Action $action `
     -Trigger @($startupTrigger, $logonTrigger) `
     -Settings $settings `
-    -Description "Runs the X Signal Dashboard services at startup or logon." `
+    -Description "Runs the Clearfeed services at startup or logon." `
     -Force | Out-Null
 
 Write-Host "Registered task: $TaskName"
 Write-Host "Action: powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$scriptPath`""
+

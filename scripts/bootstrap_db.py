@@ -1,4 +1,4 @@
-import os
+﻿import os
 import sys
 from pathlib import Path
 
@@ -6,7 +6,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from x_signal_dashboard import db
+from clearfeed_dashboard import db
 
 
 def load_env(path: Path) -> None:
@@ -26,3 +26,4 @@ if __name__ == "__main__":
     with db.managed_connection(database_path) as conn:
         db.bootstrap(conn)
     print(f"Database bootstrapped at {database_path}")
+

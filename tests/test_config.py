@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import os
 import tempfile
@@ -6,7 +6,7 @@ import textwrap
 import unittest
 from pathlib import Path
 
-from x_signal_dashboard.config import load_config
+from clearfeed_dashboard.config import load_config
 
 
 class ConfigTests(unittest.TestCase):
@@ -146,3 +146,4 @@ class ConfigTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+

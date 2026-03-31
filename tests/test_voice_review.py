@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import os
 import tempfile
@@ -6,10 +6,10 @@ import textwrap
 import unittest
 from pathlib import Path
 
-from x_signal_dashboard import db
-from x_signal_dashboard.config import load_config
-from x_signal_dashboard.db import managed_connection
-from x_signal_dashboard.service import XAgentService
+from clearfeed_dashboard import db
+from clearfeed_dashboard.config import load_config
+from clearfeed_dashboard.db import managed_connection
+from clearfeed_dashboard.service import XAgentService
 
 
 class _FakeDrafting:
@@ -208,3 +208,4 @@ class VoiceReviewTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+

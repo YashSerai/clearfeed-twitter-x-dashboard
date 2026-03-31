@@ -1,4 +1,4 @@
-# Clearfeed: AI X/Twitter Feed Curator & Drafter
+﻿# Clearfeed: AI X/Twitter Feed Curator & Drafter
 
 Local high-signal X/Twitter dashboard for builders who want better discovery, faster drafting, and a cleaner way to monitor Twitter without mindlessly scrolling all day.
 
@@ -229,7 +229,7 @@ Important rules:
 - Performance is worse from a OneDrive-backed path. Prefer cloning to a local folder like `C:\dev\clearfeed-twitter-x-dashboard` instead of `C:\Users\...\OneDrive\...`.
 
 ## Repo Layout
-- `x_signal_dashboard/` application code
+- `clearfeed_dashboard/` application code
 - `scripts/` bootstrap and runtime commands
 - `profiles/default/` voice templates
 - `profiles/templates/` questionnaire and AI prompt templates
@@ -253,3 +253,4 @@ If you want to improve the source ranking, dashboard UX, or onboarding flow, ope
 - Test the quickstart on a clean Windows machine or VM.
 - Test local-only approval.
 - Test direct posting with X API credentials.
+

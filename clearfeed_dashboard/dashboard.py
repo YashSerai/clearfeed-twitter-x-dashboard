@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import json
 import os
@@ -347,7 +347,7 @@ def _render_dashboard(
 <html>
 <head>
   <meta charset="utf-8">
-  <title>X Signal Dashboard</title>
+  <title>Clearfeed</title>
   <style>
     :root {{
       --bg: #0a0d12;
@@ -1227,7 +1227,7 @@ def _render_dashboard(
       <div class="hero">
         <div>
           <div class="hero-kicker">Local X Workflow</div>
-          <h1>X Signal Dashboard</h1>
+          <h1>Clearfeed</h1>
           <p>Review high-signal tweets from your weighted lists, draft replies in your own voice, and approve what actually goes out. Tweets, drafts, and decisions stay local so you can refine the workflow over time.</p>
           <div class="hero-meta-row">
             <span class="hero-meta-pill">Discovery: weighted lists + optional home</span>
@@ -1931,7 +1931,7 @@ def _candidate_card(row: sqlite3.Row, draft_text_limit: int, posting_enabled: bo
     metrics = _metrics_text(row["raw_metrics"])
     draft_badge = ""
     if row["draft_id"]:
-        draft_badge = f'<span class="pill {_pill_class(row["draft_status"])}">draft #{row["draft_id"]} · {_escape(row["draft_status"])}</span>'
+        draft_badge = f'<span class="pill {_pill_class(row["draft_status"])}">draft #{row["draft_id"]} Â· {_escape(row["draft_status"])}</span>'
     draft_count = int(row["draft_count"] or 0)
     attempts = "No drafts yet" if draft_count == 0 else f"{draft_count} draft{'s' if draft_count != 1 else ''} on this tweet"
     tweet_text = _escape((row["text"] or "").strip() or "No text captured for this tweet.")
@@ -2049,7 +2049,7 @@ def _candidate_draft_panel(
     return (
         f'<section class="draft-inline" id="draft-{draft_id}">'
         '<div class="draft-inline-header">'
-        f'<div><h3>Latest Draft #{draft_id}</h3><div class="draft-inline-note">{" · ".join(note_bits)}</div></div>'
+        f'<div><h3>Latest Draft #{draft_id}</h3><div class="draft-inline-note">{" Â· ".join(note_bits)}</div></div>'
         f'<span class="pill {_pill_class(draft_status)}">{_escape(draft_status)}</span>'
         '</div>'
         f"{guidance_html}"
@@ -2085,7 +2085,7 @@ def _original_draft_card(
     return (
         f'<article class="original-card" id="draft-{row["id"]}">'
         '<div class="draft-inline-header">'
-        f'<div><h3>Original Draft #{row["id"]}</h3><div class="draft-inline-note">{" · ".join(note_bits)}</div></div>'
+        f'<div><h3>Original Draft #{row["id"]}</h3><div class="draft-inline-note">{" Â· ".join(note_bits)}</div></div>'
         f'<span class="pill {_pill_class(row["status"])}">{_escape(row["status"])}</span>'
         '</div>'
         f"{_draft_text_editor(int(row['id']), row['draft_text'] or '', str(row['status'] or ''), draft_text_limit)}"
@@ -2550,3 +2550,4 @@ def _escape(text: str) -> str:
         .replace(">", "&gt;")
         .replace('"', "&quot;")
     )
+

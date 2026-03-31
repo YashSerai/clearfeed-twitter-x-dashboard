@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import difflib
 import json
@@ -1109,7 +1109,7 @@ def _extract_media_urls(candidate_row_or_dict: Any) -> list[str]:
 
 
 def _build_logger(path: Path) -> logging.Logger:
-    logger = logging.getLogger("x_signal_dashboard.worker")
+    logger = logging.getLogger("clearfeed_dashboard.worker")
     logger.setLevel(logging.INFO)
     if logger.handlers:
         return logger
@@ -1122,3 +1122,4 @@ def _build_logger(path: Path) -> logging.Logger:
     logger.addHandler(stream_handler)
     logger.propagate = False
     return logger
+
