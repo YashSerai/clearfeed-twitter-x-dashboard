@@ -102,6 +102,59 @@ If you explicitly want to use the managed Playwright browser instead, use:
 .\scripts\run-worker.ps1
 ```
 
+## Run Commands
+Start the dashboard:
+
+```powershell
+.\scripts\run-dashboard.ps1
+```
+
+Start the worker:
+
+```powershell
+.\scripts\run-worker.ps1
+```
+
+If you started either process in the current terminal, press `Ctrl+C` in that terminal to stop it.
+
+Stop any background worker process for this repo:
+
+```powershell
+Get-CimInstance Win32_Process |
+  Where-Object {
+    ($_.Name -eq 'python.exe' -or $_.Name -eq 'pythonw.exe') -and
+    $_.CommandLine -and
+    $_.CommandLine -like '*run_worker.py*'
+  } |
+  ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
+```
+
+Stop any background dashboard process for this repo:
+
+```powershell
+Get-CimInstance Win32_Process |
+  Where-Object {
+    ($_.Name -eq 'python.exe' -or $_.Name -eq 'pythonw.exe') -and
+    $_.CommandLine -and
+    $_.CommandLine -like '*run_dashboard.py*'
+  } |
+  ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
+```
+
+Restart the worker:
+
+```powershell
+Get-CimInstance Win32_Process |
+  Where-Object {
+    ($_.Name -eq 'python.exe' -or $_.Name -eq 'pythonw.exe') -and
+    $_.CommandLine -and
+    $_.CommandLine -like '*run_worker.py*'
+  } |
+  ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
+
+.\scripts\run-worker.ps1
+```
+
 ## Source Configuration
 The starter config supports three weighted list sources plus an optional home timeline source.
 
@@ -160,6 +213,7 @@ If you have an X archive, use it only as reference material while answering the 
 - Approve button does not post: this is expected if X API credentials are not configured.
 - Telegram actions do nothing: Telegram is optional and remains disabled until `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` are configured.
 - Vertex auth failures: verify `GOOGLE_CLOUD_PROJECT` and `GOOGLE_APPLICATION_CREDENTIALS`, then confirm the account has access to the configured models.
+- Performance is worse from a OneDrive-backed path. Prefer cloning to a local folder like `C:\dev\x-signal-dashboard` instead of `C:\Users\...\OneDrive\...`.
 
 ## Repo Layout
 - `x_signal_dashboard/` application code
