@@ -1341,16 +1341,20 @@ def _render_dashboard(
                 <pre>{_escape(launcher_log)}</pre>
               </div>
             </div>
-            <details class="command-details">
-              <summary>
-                <span>Helpful Commands</span>
-                <span class="dev-chevron" aria-hidden="true">&#9662;</span>
-              </summary>
-              <div class="command-details-body">
-                {commands_html}
-              </div>
-            </details>
-            </div>
+          </div>
+        </details>
+      </section>
+      <section class="card span-12">
+        <details class="command-details">
+          <summary>
+            <span class="dev-summary-copy">
+              <span class="dev-summary-title">Helpful Commands</span>
+              <span class="dev-summary-subtitle">Quick run, stop, and maintenance commands for this repo.</span>
+            </span>
+            <span class="dev-chevron" aria-hidden="true">&#9662;</span>
+          </summary>
+          <div class="command-details-body">
+            {commands_html}
           </div>
         </details>
       </section>
