@@ -509,9 +509,12 @@ def _render_dashboard(
     .original-draft-form {{
       display:grid;
       gap:12px;
+      min-height: 100%;
+      align-content: stretch;
     }}
     .original-topic-input {{
-      min-height: 132px;
+      min-height: 184px;
+      height: 100%;
       resize: vertical;
       line-height: 1.55;
     }}
@@ -679,46 +682,113 @@ def _render_dashboard(
     }}
     .voice-review-card {{
       border: 1px solid rgba(119,225,255,.14);
-      border-radius: 20px;
-      padding: 18px;
-      background: linear-gradient(180deg, rgba(8,13,20,.92), rgba(13,20,29,.92));
+      border-radius: 24px;
+      padding: 22px;
+      background:
+        linear-gradient(180deg, rgba(8,13,20,.96), rgba(13,20,29,.94)),
+        radial-gradient(circle at top right, rgba(119,225,255,.10), transparent 32%);
     }}
     .voice-review-top {{
-      display:flex;
-      justify-content:space-between;
-      align-items:flex-start;
-      gap:16px;
-      margin-bottom:12px;
+      display:grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap:18px;
+      align-items:start;
+      margin-bottom:16px;
     }}
-    .voice-review-meta {{
+    .voice-review-heading {{
+      display:grid;
+      gap:8px;
+    }}
+    .voice-review-title {{
+      font-size: 30px;
+      font-weight: 700;
+      line-height: 1.05;
+      margin: 0;
+    }}
+    .voice-review-kicker {{
+      color: var(--accent);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: .1em;
+    }}
+    .voice-review-actions {{
       display:flex;
       flex-wrap:wrap;
-      gap:8px;
-      margin: 12px 0;
+      gap:10px;
+      justify-content:flex-end;
+      align-items:flex-start;
+    }}
+    .voice-review-meta {{
+      display:grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap:10px;
+      margin: 14px 0 0;
     }}
     .voice-review-pill {{
-      display:inline-flex;
-      align-items:center;
-      padding:6px 10px;
-      border-radius:999px;
+      display:grid;
+      gap:4px;
+      padding:12px 14px;
+      border-radius:16px;
       border:1px solid rgba(255,255,255,.08);
       background: rgba(255,255,255,.04);
       color: var(--muted);
       font-size: 12px;
+      line-height: 1.4;
+    }}
+    .voice-review-pill strong {{
+      color: var(--text);
+      font-size: 15px;
+      font-weight: 700;
+      line-height: 1.2;
     }}
     .voice-review-summary {{
-      margin: 0 0 12px;
+      margin: 0;
       color: var(--text);
       line-height: 1.55;
       white-space: pre-wrap;
     }}
+    .voice-review-empty {{
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.55;
+      margin-top: 14px;
+    }}
     .voice-diff details {{
-      margin-top: 12px;
+      margin-top: 18px;
+      border: 1px solid rgba(255,255,255,.08);
+      border-radius: 16px;
+      background: rgba(8,14,21,.4);
+      padding: 14px 16px;
     }}
     .voice-diff summary {{
       cursor: pointer;
       color: var(--accent);
       font-weight: 700;
+    }}
+    .voice-diff pre {{
+      margin-top: 12px;
+    }}
+    .reset-grid {{
+      display:grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap:10px;
+      margin: 12px 0 14px;
+    }}
+    .reset-item {{
+      padding:12px;
+      border-radius:16px;
+      border:1px solid rgba(255,255,255,.08);
+      background: rgba(255,255,255,.03);
+    }}
+    .reset-item strong {{
+      display:block;
+      color: var(--text);
+      margin-bottom: 4px;
+      font-size: 14px;
+    }}
+    .reset-item small {{
+      color: var(--muted);
+      line-height: 1.4;
     }}
     .draft-cell {{ min-width: 340px; }}
     .draft-form {{ display: grid; gap: 8px; }}
@@ -1097,6 +1167,9 @@ def _render_dashboard(
       .queue-toolbar {{ justify-content: flex-start; }}
       .queue-counter {{ text-align: left; min-width: 0; }}
       .worker-controls {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
+      .voice-review-top {{ grid-template-columns: 1fr; }}
+      .voice-review-actions {{ justify-content: flex-start; }}
+      .voice-review-meta {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
     }}
     @media (max-width: 720px) {{
       .wrap {{ padding: 16px; }}
@@ -1117,6 +1190,8 @@ def _render_dashboard(
       .draft-inline-actions form button {{ width: 100%; }}
       .queue-toolbar button {{ width: auto; }}
       .worker-controls {{ grid-template-columns: 1fr; }}
+      .voice-review-meta,
+      .reset-grid {{ grid-template-columns: 1fr; }}
     }}
   </style>
 </head>
@@ -1161,7 +1236,7 @@ def _render_dashboard(
         <div class="section-note">The app learns from drafts you approve, reject, and edit in the dashboard. It proposes reviewed updates to <code>Voice.md</code> over time. <code>Humanizer.md</code> stays fixed.</div>
         {voice_review_html}
       </section>
-      <section class="card span-4">
+      <section class="card span-4 original-drafts-card">
         <h2>Create Original Drafts</h2>
         <div class="section-note">Use this for standalone posts that are not tied to a tweet in the reply queue.</div>
         <form method="post" action="/original" class="original-draft-form">
@@ -1186,6 +1261,12 @@ def _render_dashboard(
       <section class="card span-4">
         <h2>Reset History</h2>
         <div class="section-note">Clears local queue, drafts, approvals, and voice-review history. Keeps your <code>.env</code>, sources, and profile files.</div>
+        <div class="reset-grid">
+          <div class="reset-item"><strong>Queue</strong><small>Clears candidate review state.</small></div>
+          <div class="reset-item"><strong>Drafts</strong><small>Removes saved reply and original drafts.</small></div>
+          <div class="reset-item"><strong>Approvals</strong><small>Resets local approval and posting history.</small></div>
+          <div class="reset-item"><strong>Voice Review</strong><small>Removes proposal history and learning events.</small></div>
+        </div>
         <form method="post" action="/reset" onsubmit="return confirm('Reset local state and clear tracked drafts, candidates, and optional Telegram message references?');">
           <button class="bad" type="submit" data-busy-label="Resetting local state...">Clear History</button>
         </form>
@@ -1694,14 +1775,29 @@ def _voice_review_card(voice_review: dict[str, Any], drafting_enabled: bool) -> 
     latest = voice_review.get("latest") or {}
     pending = voice_review.get("pending") or {}
     meta_bits = [
-        f'<span class="voice-review-pill">New examples: {_escape(str(voice_review.get("new_examples", 0)))}</span>',
+        (
+            '<span class="voice-review-pill">'
+            f'<strong>{_escape(str(voice_review.get("new_examples", 0)))}</strong>'
+            '<span>New examples waiting</span>'
+            "</span>"
+        ),
     ]
     if latest:
         meta_bits.append(
-            f'<span class="voice-review-pill">Last review: {_escape(_fmt_time(str(latest.get("created_at") or "")))}</span>'
+            (
+                '<span class="voice-review-pill">'
+                f'<strong>{_escape(_fmt_time(str(latest.get("created_at") or "")))}</strong>'
+                '<span>Last review ran</span>'
+                "</span>"
+            )
         )
         meta_bits.append(
-            f'<span class="voice-review-pill">Last status: {_escape(str(latest.get("status") or "unknown"))}</span>'
+            (
+                '<span class="voice-review-pill">'
+                f'<strong>{_escape(str(latest.get("status") or "unknown"))}</strong>'
+                '<span>Last proposal status</span>'
+                "</span>"
+            )
         )
     meta_html = "".join(meta_bits)
     run_button = _post_button(
@@ -1721,12 +1817,14 @@ def _voice_review_card(voice_review: dict[str, Any], drafting_enabled: bool) -> 
         return (
             '<div class="voice-review-card">'
             '<div class="voice-review-top">'
-            '<div>'
-            '<strong>No pending proposal</strong>'
-            '<p class="voice-review-summary">Run a review after enough approved, rejected, or edited drafts have accumulated. The app uses your dashboard decisions to propose a better Voice.md without touching Humanizer.md.</p>'
+            '<div class="voice-review-heading">'
+            '<div class="voice-review-kicker">Adaptive Voice</div>'
+            '<h3 class="voice-review-title">No pending proposal</h3>'
+            '<p class="voice-review-summary">When enough approved, rejected, or edited drafts accumulate, you can run a review to turn those patterns into a cleaner <code>Voice.md</code> proposal. <code>Humanizer.md</code> stays untouched.</p>'
             "</div>"
-            f'<div class="controls">{run_button}</div>'
+            f'<div class="voice-review-actions">{run_button}</div>'
             "</div>"
+            '<div class="voice-review-empty">Best signal comes from editing drafts in the dashboard before you approve them. Those edits give the review system something concrete to learn from.</div>'
             f'<div class="voice-review-meta">{meta_html}</div>'
             "</div>"
         )
@@ -1762,15 +1860,22 @@ def _voice_review_card(voice_review: dict[str, Any], drafting_enabled: bool) -> 
     return (
         '<div class="voice-review-card">'
         '<div class="voice-review-top">'
-        '<div>'
-        f'<strong>Pending proposal #{_escape(str(pending["id"]))}</strong>'
+        '<div class="voice-review-heading">'
+        '<div class="voice-review-kicker">Adaptive Voice</div>'
+        f'<h3 class="voice-review-title">Proposal #{_escape(str(pending["id"]))} is ready</h3>'
         f'<p class="voice-review-summary">{_escape(str(pending.get("summary_text") or ""))}</p>'
         "</div>"
-        f'<div class="controls">{approve_button}{reject_button}</div>'
+        f'<div class="voice-review-actions">{approve_button}{reject_button}</div>'
         "</div>"
         f'<div class="voice-review-meta">{meta_html}'
-        f'<span class="voice-review-pill">Samples used: {_escape(str(pending.get("sample_count") or 0))}</span>'
-        f'<span class="voice-review-pill">Created: {_escape(_fmt_time(str(pending.get("created_at") or "")))}</span>'
+        '<span class="voice-review-pill">'
+        f'<strong>{_escape(str(pending.get("sample_count") or 0))}</strong>'
+        '<span>Samples used</span>'
+        "</span>"
+        '<span class="voice-review-pill">'
+        f'<strong>{_escape(_fmt_time(str(pending.get("created_at") or "")))}</strong>'
+        '<span>Created at</span>'
+        "</span>"
         "</div>"
         f"{diff_html}"
         "</div>"
