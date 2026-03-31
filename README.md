@@ -10,10 +10,12 @@ Clearfeed monitors your weighted X/Twitter Lists and, if you enable it, your hom
 
 ## Why This Exists
 - Most feeds are noisy.
-- Most drafting tools are generic.
-- Most "growth bots" optimize for volume instead of judgment.
+- Most good posts disappear into timeline clutter.
+- Most AI writing tools help you publish more, not think better.
 
-This repo takes the opposite approach: better source selection, stronger context, and a human-in-the-loop workflow.
+I built Clearfeed because I wanted a better way to keep up with X/Twitter, spot posts worth replying to, and stay close to what smart people were talking about without falling into endless scrolling.
+
+The point is simple: tighter inputs, better drafting, and a workflow where the human still decides what is worth saying.
 
 ## Feature Highlights
 - Weighted discovery across multiple X Lists.
@@ -42,6 +44,13 @@ When you add it, use:
 ```md
 ![Clearfeed Dashboard](docs/assets/dashboard-screenshot.png)
 ```
+
+## What Clearfeed Helps With
+- Keeping up with your niche without sitting in the home feed for hours.
+- Finding posts that are actually worth replying to.
+- Turning rough ideas into reply drafts in your own voice.
+- Editing before posting so AI stays useful instead of taking over.
+- Building a better voice file over time from what you approve, reject, and rewrite.
 
 ## How It Works
 1. You choose the feeds that matter: list 1, list 2, list 3, and optional home timeline.
@@ -74,13 +83,6 @@ When you add it, use:
 - Founders who want a cleaner signal feed than the default timeline.
 - Operators who want AI to help with drafting, not replace judgment.
 - People who want to learn from relevant posts without spending hours scrolling.
-
-## What It Does Not Do
-- It does not scrape mentions in public v1.
-- It does not post by scripting the X website.
-- It does not parse X archives automatically.
-- It does not run as a cloud SaaS.
-- It does not try to be an unattended engagement bot.
 
 ## Quickstart
 ```powershell
