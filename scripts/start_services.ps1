@@ -1,94 +1,107 @@
 $ErrorActionPreference = "Stop"
 
 $root = Split-Path -Parent $PSScriptRoot
-$dashboardErrorLog = Join-Path $root "logs\\dashboard-launch-error.log"
-$workerErrorLog = Join-Path $root "logs\\worker-launch-error.log"
+$python = Join-Path $root ".venv\Scripts\python.exe"
+$logsDir = Join-Path $root "logs"
 
-function Wait-ForPythonProcess {
+function Read-StartupDetail {
     param(
-        [string]$Pattern,
-        [int]$TimeoutSeconds = 6
+        [string]$StdErrPath,
+        [string]$StdOutPath
     )
 
-    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
-    do {
-        $processes = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
-            Where-Object {
-                ($_.Name -eq "python.exe" -or $_.Name -eq "pythonw.exe") -and
-                $_.CommandLine -and
-                $_.CommandLine -like $Pattern
-            }
-        if ($processes) {
-            return $true
+    if (Test-Path $StdErrPath) {
+        $stderr = (Get-Content $StdErrPath -ErrorAction SilentlyContinue | Select-Object -Last 20) -join " "
+        if ($stderr.Trim()) {
+            return $stderr.Trim()
         }
-        Start-Sleep -Milliseconds 400
-    } while ((Get-Date) -lt $deadline)
+    }
 
-    return $false
+    if (Test-Path $StdOutPath) {
+        $stdout = (Get-Content $StdOutPath -ErrorAction SilentlyContinue | Select-Object -Last 20) -join " "
+        if ($stdout.Trim()) {
+            return $stdout.Trim()
+        }
+    }
+
+    return $null
 }
 
-function Read-LaunchError {
-    param([string]$Path)
-    if (-not (Test-Path $Path)) {
-        return $null
+function Start-ManagedPythonService {
+    param(
+        [string]$Label,
+        [string]$ScriptPath,
+        [string]$StdOutPath,
+        [string]$StdErrPath
+    )
+
+    if (Test-Path $StdOutPath) {
+        Remove-Item -Force $StdOutPath
     }
-    $content = Get-Content $Path -ErrorAction SilentlyContinue
-    if (-not $content) {
-        return $null
+    if (Test-Path $StdErrPath) {
+        Remove-Item -Force $StdErrPath
     }
-    return ($content | Select-Object -First 3) -join " "
+
+    $process = Start-Process -FilePath $python `
+        -ArgumentList $ScriptPath `
+        -WorkingDirectory $root `
+        -RedirectStandardOutput $StdOutPath `
+        -RedirectStandardError $StdErrPath `
+        -WindowStyle Hidden `
+        -PassThru
+
+    Start-Sleep -Seconds 3
+    $process.Refresh()
+
+    if (-not $process.HasExited) {
+        return @{
+            started = $true
+            detail = $null
+        }
+    }
+
+    $detail = Read-StartupDetail -StdErrPath $StdErrPath -StdOutPath $StdOutPath
+    if (-not $detail) {
+        $detail = "$Label exited during startup with code $($process.ExitCode)."
+    }
+
+    return @{
+        started = $false
+        detail = $detail
+    }
 }
 
 & "$PSScriptRoot\stop_all_services.ps1" -Quiet
 
-if (Test-Path $dashboardErrorLog) {
-    Remove-Item -Force $dashboardErrorLog
-}
-if (Test-Path $workerErrorLog) {
-    Remove-Item -Force $workerErrorLog
+if (-not (Test-Path $python)) {
+    throw "Missing .venv. Run .\scripts\bootstrap.ps1 first."
 }
 
-Start-Process powershell -ArgumentList @(
-    "-NoProfile",
-    "-ExecutionPolicy",
-    "Bypass",
-    "-File",
-    (Join-Path $PSScriptRoot "run-dashboard.ps1")
-) -WorkingDirectory $root | Out-Null
+New-Item -ItemType Directory -Force -Path $logsDir | Out-Null
 
-$dashboardStarted = Wait-ForPythonProcess -Pattern "*run_dashboard.py*"
+$dashboardResult = Start-ManagedPythonService `
+    -Label "Dashboard" `
+    -ScriptPath ".\scripts\run_dashboard.py" `
+    -StdOutPath (Join-Path $logsDir "dashboard-startup.out.log") `
+    -StdErrPath (Join-Path $logsDir "dashboard-startup.err.log")
 
-Start-Process powershell -ArgumentList @(
-    "-NoProfile",
-    "-ExecutionPolicy",
-    "Bypass",
-    "-File",
-    (Join-Path $PSScriptRoot "run-worker.ps1")
-) -WorkingDirectory $root | Out-Null
+$workerResult = Start-ManagedPythonService `
+    -Label "Worker" `
+    -ScriptPath ".\scripts\run_worker.py" `
+    -StdOutPath (Join-Path $logsDir "worker-startup.out.log") `
+    -StdErrPath (Join-Path $logsDir "worker-startup.err.log")
 
-$workerStarted = Wait-ForPythonProcess -Pattern "*run_worker.py*"
-
-if ($dashboardStarted -and $workerStarted) {
-    Write-Host "Started dashboard and worker in separate PowerShell windows."
+if ($dashboardResult.started -and $workerResult.started) {
+    Write-Host "Started dashboard and worker."
     exit 0
 }
 
-if (-not $dashboardStarted) {
-    $dashboardError = Read-LaunchError -Path $dashboardErrorLog
-    if ($dashboardError) {
-        Write-Host "Dashboard failed to start: $dashboardError"
-    } else {
-        Write-Host "Dashboard failed to start. Check logs\\dashboard-launch-error.log"
-    }
+if (-not $dashboardResult.started) {
+    Write-Host "Dashboard failed to start: $($dashboardResult.detail)"
 }
 
-if (-not $workerStarted) {
-    $workerError = Read-LaunchError -Path $workerErrorLog
-    if ($workerError) {
-        Write-Host "Worker failed to start: $workerError"
-    } else {
-        Write-Host "Worker failed to start. Check logs\\worker-launch-error.log"
-    }
+if (-not $workerResult.started) {
+    Write-Host "Worker failed to start: $($workerResult.detail)"
 }
 
 exit 1
