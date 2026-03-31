@@ -38,8 +38,8 @@ class ConfigTests(unittest.TestCase):
                     - profiles/default/Voice.md
                     - profiles/default/Humanizer.md
                 worker:
-                  min_delay_minutes: 30
-                  max_delay_minutes: 30
+                  min_delay_minutes: 25
+                  max_delay_minutes: 35
                   max_candidates_per_cycle: 6
                   candidate_overlap_minutes: 60
                   max_reply_age_minutes: 60
@@ -115,6 +115,16 @@ class ConfigTests(unittest.TestCase):
             self.assertEqual(config.sources[0].source_weight, 1.4)
             self.assertEqual(config.sources[1].type, "home")
             self.assertEqual(config.sources[1].source_weight, 0.77)
+
+    def test_worker_delay_env_overrides(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self._write_repo(root)
+            os.environ["WORKER_MIN_DELAY_MINUTES"] = "22"
+            os.environ["WORKER_MAX_DELAY_MINUTES"] = "41"
+            config = load_config(root)
+            self.assertEqual(config.worker.min_delay_minutes, 22)
+            self.assertEqual(config.worker.max_delay_minutes, 41)
 
     def test_unsupported_source_type_raises(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

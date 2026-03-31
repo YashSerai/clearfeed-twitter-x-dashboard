@@ -153,8 +153,11 @@ Env-based setup:
 - `LIST_2_URL`, `LIST_2_WEIGHT`
 - `LIST_3_URL`, `LIST_3_WEIGHT`
 - `HOME_TIMELINE_ENABLED`, `HOME_TIMELINE_WEIGHT`
+- `WORKER_MIN_DELAY_MINUTES`, `WORKER_MAX_DELAY_MINUTES`
 
 You can also edit [`data/sources/x_sources.yaml`](data/sources/x_sources.yaml) directly if you want more feeds, different labels, or different source behavior.
+
+The default worker cadence is randomized between `25` and `35` minutes. If you want a tighter or slower loop, change those two env vars.
 
 ## Voice Setup
 This repo uses three local files as the voice packet:

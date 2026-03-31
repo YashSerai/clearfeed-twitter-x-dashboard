@@ -49,6 +49,16 @@ def _get_float(name: str, default: float) -> float:
         raise RuntimeError(f"Environment variable {name} must be a number.") from exc
 
 
+def _get_int(name: str, default: int) -> int:
+    value = os.environ.get(name)
+    if value is None or not value.strip():
+        return default
+    try:
+        return int(value.strip())
+    except ValueError as exc:
+        raise RuntimeError(f"Environment variable {name} must be an integer.") from exc
+
+
 @dataclass(slots=True)
 class AppConfig:
     root: Path
@@ -164,7 +174,13 @@ def load_config(root: str | Path | None = None) -> AppConfig:
         (project_root / "data" / "sources" / "x_sources.yaml").read_text(encoding="utf-8")
     )
 
-    worker = WorkerSettings(**cfg["worker"])
+    worker_cfg = dict(cfg["worker"])
+    worker_cfg["min_delay_minutes"] = _get_int("WORKER_MIN_DELAY_MINUTES", int(worker_cfg["min_delay_minutes"]))
+    worker_cfg["max_delay_minutes"] = _get_int("WORKER_MAX_DELAY_MINUTES", int(worker_cfg["max_delay_minutes"]))
+    if int(worker_cfg["max_delay_minutes"]) < int(worker_cfg["min_delay_minutes"]):
+        raise RuntimeError("WORKER_MAX_DELAY_MINUTES must be greater than or equal to WORKER_MIN_DELAY_MINUTES.")
+
+    worker = WorkerSettings(**worker_cfg)
     style_files = [project_root / rel_path for rel_path in cfg["style"]["files"]]
     missing_style_files = [str(path.relative_to(project_root)) for path in style_files if not path.exists()]
     if missing_style_files:

@@ -4,8 +4,8 @@ style:
     - profiles/default/Voice.md
     - profiles/default/Humanizer.md
 worker:
-  min_delay_minutes: 30
-  max_delay_minutes: 30
+  min_delay_minutes: 25
+  max_delay_minutes: 35
   max_candidates_per_cycle: 6
   candidate_overlap_minutes: 60
   max_reply_age_minutes: 60

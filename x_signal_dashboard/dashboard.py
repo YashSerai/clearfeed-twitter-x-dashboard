@@ -282,9 +282,10 @@ def _render_dashboard(
         "starting": "Starting",
     }
     worker_state_label = worker_state_labels.get(str(worker_state), "Unknown")
+    cadence_label = _fmt_cadence_range(worker_min_delay_minutes, worker_max_delay_minutes)
     cadence_copy = (
         f"Windows launches the worker at sign-in. After that it checks for fresh tweets every "
-        f"{worker_min_delay_minutes}-{worker_max_delay_minutes} minutes."
+        f"{cadence_label}."
     )
     overview_html = "".join(
         _overview_stat_card(item["label"], item["value"], item["detail"]) for item in overview_stats
@@ -324,7 +325,7 @@ def _render_dashboard(
             ("Status", worker_state_label),
             ("Last update", _fmt_time(updated_at)),
             ("Next scan", next_run_countdown),
-            ("Cadence", f"{worker_min_delay_minutes}-{worker_max_delay_minutes} min"),
+            ("Cadence", cadence_label),
         ]
     )
     setup_html = "".join(
@@ -493,6 +494,27 @@ def _render_dashboard(
     .error {{ margin-top: 12px; color: var(--bad); white-space: pre-wrap; }}
     .controls {{ display:flex; gap:8px; flex-wrap:wrap; }}
     .controls form {{ margin:0; }}
+    .worker-controls {{
+      display:grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap:10px;
+      margin-top: 10px;
+    }}
+    .worker-controls form {{
+      margin:0;
+    }}
+    .worker-controls button {{
+      width: 100%;
+    }}
+    .original-draft-form {{
+      display:grid;
+      gap:12px;
+    }}
+    .original-topic-input {{
+      min-height: 132px;
+      resize: vertical;
+      line-height: 1.55;
+    }}
     .section-note {{ margin: -6px 0 14px; color: var(--muted); font-size: 13px; }}
     button {{
       border: 1px solid var(--border);
@@ -1004,6 +1026,7 @@ def _render_dashboard(
       .original-drafts-grid {{ grid-template-columns: 1fr; }}
       .queue-toolbar {{ justify-content: flex-start; }}
       .queue-counter {{ text-align: left; min-width: 0; }}
+      .worker-controls {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
     }}
     @media (max-width: 720px) {{
       .wrap {{ padding: 16px; }}
@@ -1023,6 +1046,7 @@ def _render_dashboard(
       .candidate-actions form button,
       .draft-inline-actions form button {{ width: 100%; }}
       .queue-toolbar button {{ width: auto; }}
+      .worker-controls {{ grid-template-columns: 1fr; }}
     }}
   </style>
 </head>
@@ -1068,10 +1092,19 @@ def _render_dashboard(
         {voice_review_html}
       </section>
       <section class="card span-4">
+        <h2>Create Original Drafts</h2>
+        <div class="section-note">Use this for standalone posts that are not tied to a tweet in the reply queue.</div>
+        <form method="post" action="/original" class="original-draft-form">
+          <textarea name="topic" class="original-topic-input" placeholder="Optional topic, angle, or context for the post. Example: new OpenAI parameter changes and why they matter for builders."></textarea>
+          <button class="ok" type="submit" data-busy-label="Generating original drafts..."{' disabled title="Set GOOGLE_CLOUD_PROJECT and GOOGLE_APPLICATION_CREDENTIALS to enable original drafting."' if not drafting_enabled else ''}>Generate Original Drafts</button>
+        </form>
+        {'' if drafting_enabled else '<div class="inline-warning">Original drafting is disabled until Google drafting credentials are configured in <code>.env</code>.</div>'}
+      </section>
+      <section class="card span-4">
         <h2>Worker Flow</h2>
         <div class="section-note">{_escape(cadence_copy)}</div>
         <ul class="stats">{workflow_html}</ul>
-        <div class="controls">
+        <div class="worker-controls">
           {_post_button('/system', 'action', 'start', None, None, 'Start Worker', 'ok', 'Starting worker...', disabled=not worker_ready, disabled_reason='Configure at least one source and capture an X session before starting the worker.')}
           {_post_button('/system', 'action', 'stop', None, None, 'Stop Worker', 'bad', 'Stopping worker...')}
           {_post_button('/system', 'action', 'restart', None, None, 'Restart Worker', '', 'Restarting worker...', disabled=not worker_ready, disabled_reason='Configure at least one source and capture an X session before restarting the worker.')}
@@ -1079,15 +1112,6 @@ def _render_dashboard(
         </div>
         {f'<div class="error"><strong>Last error:</strong> {_escape(last_error)}</div>' if last_error else ''}
         {'' if worker_ready else '<div class="inline-warning">Worker actions are disabled until an X session is captured and at least one source is configured.</div>'}
-      </section>
-      <section class="card span-4">
-        <h2>Create Original Drafts</h2>
-        <div class="section-note">Use this for standalone posts that are not tied to a tweet in the reply queue.</div>
-        <form method="post" action="/original">
-          <input type="text" name="topic" placeholder="Optional topic, for example: new OpenAI parameter changes">
-          <button class="ok" type="submit" data-busy-label="Generating original drafts..."{' disabled title="Set GOOGLE_CLOUD_PROJECT and GOOGLE_APPLICATION_CREDENTIALS to enable original drafting."' if not drafting_enabled else ''}>Generate Original Drafts</button>
-        </form>
-        {'' if drafting_enabled else '<div class="inline-warning">Original drafting is disabled until Google drafting credentials are configured in <code>.env</code>.</div>'}
       </section>
       <section class="card span-4">
         <h2>Reset History</h2>
@@ -1575,6 +1599,12 @@ def _overview_stat_card(label: str, value: str, detail: str) -> str:
         f'<p class="overview-detail">{_escape(detail)}</p>'
         "</div>"
     )
+
+
+def _fmt_cadence_range(min_minutes: int, max_minutes: int) -> str:
+    if min_minutes == max_minutes:
+        return f"{min_minutes} min"
+    return f"{min_minutes}-{max_minutes} min"
 
 
 def _voice_review_card(voice_review: dict[str, Any], drafting_enabled: bool) -> str:
