@@ -105,7 +105,7 @@ class AppConfig:
             "profiles": {
                 "ok": True,
                 "label": "Voice Profiles",
-                "detail": "Profile templates are present.",
+                "detail": "Templates ready.",
             },
             "google": {
                 "ok": self.drafting_enabled,
@@ -113,16 +113,16 @@ class AppConfig:
                 "detail": (
                     "Drafting is enabled."
                     if self.drafting_enabled
-                    else "Set GOOGLE_CLOUD_PROJECT and GOOGLE_APPLICATION_CREDENTIALS to enable drafting."
+                    else "Add Google project and credentials."
                 ),
             },
             "session": {
                 "ok": self.session_ready,
                 "label": "X Session",
                 "detail": (
-                    "Playwright session is ready."
+                    "Session captured."
                     if self.session_ready
-                    else "Run scripts/capture-x-session.ps1 after logging into X."
+                    else "Run capture-x-session.ps1."
                 ),
             },
             "sources": {
@@ -131,7 +131,7 @@ class AppConfig:
                 "detail": (
                     f"{len(self.sources)} source(s) configured."
                     if self.sources_ready
-                    else "Add at least one source URL in .env or data/sources/x_sources.yaml."
+                    else "Add at least one source."
                 ),
             },
             "posting": {
@@ -140,7 +140,7 @@ class AppConfig:
                 "detail": (
                     "Posting is enabled."
                     if self.posting_enabled
-                    else "X API credentials are missing. Approvals will stay local."
+                    else "Optional. Local approvals only."
                 ),
             },
             "telegram": {
@@ -149,7 +149,7 @@ class AppConfig:
                 "detail": (
                     "Telegram mirroring is enabled."
                     if self.telegram_enabled
-                    else "Telegram is optional and currently disabled."
+                    else "Optional. Currently off."
                 ),
             },
         }

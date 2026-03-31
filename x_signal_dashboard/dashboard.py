@@ -383,10 +383,30 @@ def _render_dashboard(
     ul.stats {{ list-style:none; padding:0; margin:0; }}
     ul.stats li {{ display:flex; justify-content:space-between; padding:10px 0; border-bottom:1px solid rgba(255,255,255,.06); }}
     ul.stats li:last-child {{ border-bottom:none; }}
-    .setup-stack {{ display:grid; gap:10px; }}
-    .setup-item {{ padding:12px 14px; border-radius:16px; border:1px solid var(--border); background: rgba(255,255,255,.02); }}
-    .setup-item-head {{ display:flex; justify-content:space-between; align-items:center; gap:10px; margin-bottom:6px; }}
-    .setup-item p {{ margin:0; color: var(--muted); line-height: 1.45; font-size: 13px; }}
+    .setup-grid {{ display:grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap:10px; }}
+    .setup-item {{
+      min-width: 0;
+      padding:12px 12px 10px;
+      border-radius:16px;
+      border:1px solid var(--border);
+      background: rgba(255,255,255,.02);
+      display:flex;
+      flex-direction:column;
+      gap:8px;
+    }}
+    .setup-item-head {{ display:flex; justify-content:space-between; align-items:flex-start; gap:10px; }}
+    .setup-item strong {{ display:block; line-height:1.2; }}
+    .setup-item p {{
+      margin:0;
+      color: var(--muted);
+      line-height: 1.35;
+      font-size: 12px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+    }}
     .badge-mini {{ padding:4px 8px; border-radius:999px; font-size:12px; font-weight:700; }}
     .badge-mini-ok {{ color: var(--ok); background: rgba(52,211,153,.12); }}
     .badge-mini-warn {{ color: var(--warn); background: rgba(247,199,95,.12); }}
@@ -838,6 +858,7 @@ def _render_dashboard(
     }}
     @media (max-width: 1100px) {{
       .span-4, .span-5, .span-6, .span-7, .span-8 {{ grid-column: span 12; }}
+      .setup-grid {{ grid-template-columns: repeat(3, minmax(0, 1fr)); }}
       .queue-layout,
       .queue-card,
       .original-drafts-grid {{ grid-template-columns: 1fr; }}
@@ -848,6 +869,7 @@ def _render_dashboard(
       .wrap {{ padding: 16px; }}
       .hero {{ padding: 20px; border-radius: 20px; flex-direction: column; align-items: flex-start; }}
       .hero h1 {{ font-size: 28px; }}
+      .setup-grid {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
       .tweet-body {{ font-size: 16px; }}
       .tweet-head {{ flex-direction: column; align-items: flex-start; }}
       .queue-shell {{ padding: 16px; }}
@@ -901,9 +923,9 @@ def _render_dashboard(
         <h2>Drafts</h2>
         <ul class="stats">{draft_html}</ul>
       </section>
-      <section class="card span-8">
+      <section class="card span-12">
         <h2>Setup Status</h2>
-        <div class="setup-stack">{setup_html}</div>
+        <div class="setup-grid">{setup_html}</div>
       </section>
       <section class="card span-8">
         <h2>System Controls</h2>
