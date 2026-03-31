@@ -118,43 +118,30 @@ Start the worker:
 .\scripts\run-worker.ps1
 ```
 
+Start dashboard and worker together in separate PowerShell windows:
+
+```powershell
+.\scripts\start_services.ps1
+```
+
 If you started either process in the current terminal, press `Ctrl+C` in that terminal to stop it.
 
 Stop any background worker process for this repo:
 
 ```powershell
-Get-CimInstance Win32_Process |
-  Where-Object {
-    ($_.Name -eq 'python.exe' -or $_.Name -eq 'pythonw.exe') -and
-    $_.CommandLine -and
-    $_.CommandLine -like '*run_worker.py*'
-  } |
-  ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
+.\scripts\stop_services.ps1
 ```
 
-Stop any background dashboard process for this repo:
+Stop both dashboard and worker background processes for this repo:
 
 ```powershell
-Get-CimInstance Win32_Process |
-  Where-Object {
-    ($_.Name -eq 'python.exe' -or $_.Name -eq 'pythonw.exe') -and
-    $_.CommandLine -and
-    $_.CommandLine -like '*run_dashboard.py*'
-  } |
-  ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
+.\scripts\stop_all_services.ps1
 ```
 
 Restart the worker:
 
 ```powershell
-Get-CimInstance Win32_Process |
-  Where-Object {
-    ($_.Name -eq 'python.exe' -or $_.Name -eq 'pythonw.exe') -and
-    $_.CommandLine -and
-    $_.CommandLine -like '*run_worker.py*'
-  } |
-  ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
-
+.\scripts\stop_services.ps1
 .\scripts\run-worker.ps1
 ```
 
