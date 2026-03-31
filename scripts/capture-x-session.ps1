@@ -1,10 +1,10 @@
-$ErrorActionPreference = "Stop"
-
 param(
     [switch]$UseManagedBrowser,
     [ValidateSet("auto", "chrome", "edge")]
     [string]$Browser = "auto"
 )
+
+$ErrorActionPreference = "Stop"
 
 $root = Split-Path -Parent $PSScriptRoot
 $python = Join-Path $root ".venv\\Scripts\\python.exe"
