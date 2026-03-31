@@ -1,4 +1,8 @@
-﻿# Clearfeed: AI X/Twitter Feed Curator & Drafter
+# Clearfeed: AI X/Twitter Feed Curator & Drafter
+
+![Python 3.x](https://img.shields.io/badge/python-3.x-blue.svg)
+![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
+![Local First](https://img.shields.io/badge/Architecture-Local_First-success)
 
 Local high-signal X/Twitter dashboard for builders who want better discovery, faster drafting, and a cleaner way to monitor Twitter without mindlessly scrolling all day.
 
@@ -24,6 +28,21 @@ This repo takes the opposite approach: better source selection, stronger context
 - Optional Telegram mirroring.
 - Optional direct posting through the official X API.
 
+## Dashboard Preview
+Add a sanitized hero screenshot at `docs/assets/dashboard-screenshot.png`.
+
+Recommended content:
+- main dashboard overview
+- ranked feed / queue visible
+- setup status visible
+- no private account data or credentials
+
+When you add it, use:
+
+```md
+![Clearfeed Dashboard](docs/assets/dashboard-screenshot.png)
+```
+
 ## How It Works
 1. You choose the feeds that matter: list 1, list 2, list 3, and optional home timeline.
 2. Each source gets its own weight.
@@ -33,10 +52,28 @@ This repo takes the opposite approach: better source selection, stronger context
 6. The app saves those decisions locally and uses them to propose better `Voice.md` updates over time.
 7. If posting credentials are configured, the app can post through the X API. If not, the draft stays local and copy-ready.
 
+## Workflow Demo
+Add a short workflow GIF at `docs/assets/clearfeed-workflow.gif`.
+
+Recommended sequence:
+1. open a candidate tweet
+2. click `Draft Reply`
+3. edit the draft in the dashboard
+4. approve the draft
+
+Keep it to roughly 5-10 seconds and avoid showing private data.
+
+When you add it, use:
+
+```md
+![Clearfeed Workflow](docs/assets/clearfeed-workflow.gif)
+```
+
 ## Who This Is For
-- Builders who actively post on X.
+- Builders who actively post on X/Twitter.
 - Founders who want a cleaner signal feed than the default timeline.
 - Operators who want AI to help with drafting, not replace judgment.
+- People who want to learn from relevant posts without spending hours scrolling.
 
 ## What It Does Not Do
 - It does not scrape mentions in public v1.
@@ -44,16 +81,6 @@ This repo takes the opposite approach: better source selection, stronger context
 - It does not parse X archives automatically.
 - It does not run as a cloud SaaS.
 - It does not try to be an unattended engagement bot.
-
-## Requirements
-- Windows with PowerShell.
-- Git.
-- Python 3 with `venv` support available as `py` or `python`.
-- A Google Cloud project and application credentials for Vertex/Gemini drafting.
-- An X account you can log into locally for Playwright list access and optional home timeline access.
-
-The bootstrap script installs Python dependencies and Playwright Chromium for you. You do not need to preinstall Playwright separately.
-You do not need to fill in `.env` before running `bootstrap.ps1` or `setup.ps1`.
 
 ## Quickstart
 ```powershell
@@ -71,26 +98,15 @@ cd "Clearfeed Twitter X Dashboard"
 You can run `bootstrap.ps1` and `setup.ps1` before filling any credentials. Credentials are only needed when you actually start drafting, scraping, or posting.
 
 Then:
-
 1. Fill in `.env`.
 2. Build `profiles/default/WhoAmI.md`.
 3. Build `profiles/default/Voice.md`.
 4. Add your feed URLs and weights in `.env` or `data/sources/x_sources.yaml`.
 5. Optionally set `HOME_TIMELINE_ENABLED=true`.
-6. Save a logged-in X session using the default real-browser capture flow:
+6. Save a logged-in X session:
 
 ```powershell
 .\scripts\capture-x-session.ps1
-```
-
-This launches a normal Chrome or Edge window with remote debugging enabled, lets you log into X there, and then captures storage state from that real browser session.
-
-Regular scraping runs headless by default. If you need visible browser debugging later, set `PLAYWRIGHT_HEADLESS=false` in `.env`.
-
-If you explicitly want to use the managed Playwright browser instead, use:
-
-```powershell
-.\scripts\capture-x-session.ps1 -UseManagedBrowser
 ```
 
 7. Start the dashboard:
@@ -104,6 +120,16 @@ If you explicitly want to use the managed Playwright browser instead, use:
 ```powershell
 .\scripts\run-worker.ps1
 ```
+
+## Requirements
+- Windows with PowerShell.
+- Git.
+- Python 3 with `venv` support available as `py` or `python`.
+- A Google Cloud project and application credentials for Vertex/Gemini drafting.
+- An X/Twitter account you can log into locally for Playwright list access and optional home timeline access.
+
+The bootstrap script installs Python dependencies and Playwright Chromium for you. You do not need to preinstall Playwright separately.
+You do not need to fill in `.env` before running `bootstrap.ps1` or `setup.ps1`.
 
 ## Run Commands
 Start the dashboard:
@@ -124,8 +150,6 @@ Start dashboard and worker together in separate PowerShell windows:
 .\scripts\start_services.ps1
 ```
 
-If you started either process in the current terminal, press `Ctrl+C` in that terminal to stop it.
-
 Stop any background worker process for this repo:
 
 ```powershell
@@ -138,11 +162,16 @@ Stop both dashboard and worker background processes for this repo:
 .\scripts\stop_all_services.ps1
 ```
 
-Restart the worker:
+Register Windows startup/logon launch for this repo:
 
 ```powershell
-.\scripts\stop_services.ps1
-.\scripts\run-worker.ps1
+.\scripts\register_windows_task.ps1
+```
+
+Remove the Windows startup/logon task:
+
+```powershell
+.\scripts\unregister_windows_task.ps1
 ```
 
 ## Source Configuration
@@ -165,7 +194,7 @@ This repo uses three local files as the voice packet:
 - `profiles/default/Voice.md`
 - `profiles/default/Humanizer.md`
 
-`WhoAmI.md` and `Voice.md` now include a fixed `## Active Guardrails` block at the bottom. Fill the editable sections above that block, but leave the guardrails unchanged unless you are intentionally changing how the system composes identity, voice, and humanizer context.
+`WhoAmI.md` and `Voice.md` include a fixed `## Active Guardrails` block at the bottom. Fill the editable sections above that block, but leave the guardrails unchanged unless you are intentionally changing how the system composes identity, voice, and humanizer context.
 
 There are two setup paths:
 
@@ -186,9 +215,6 @@ Use these files:
 Answer the questionnaires yourself, then paste those answers into the build prompt and ask an AI agent to generate the final contents for:
 - `profiles/default/WhoAmI.md`
 - `profiles/default/Voice.md`
-
-This gives users a much better starting point than writing voice docs from scratch.
-The build prompt explicitly preserves the fixed guardrails block in both final files.
 
 If you have an X archive, use it only as reference material while answering the voice questionnaire. Public v1 does not ingest archives directly.
 
@@ -217,6 +243,15 @@ Important rules:
 - `Voice.md` is never auto-updated silently
 - edits made inside the dashboard are the highest-signal feedback, so prefer editing there before you approve a post
 
+## Repo Layout
+- `clearfeed_dashboard/` application code
+- `scripts/` bootstrap and runtime commands
+- `profiles/default/` voice templates
+- `profiles/templates/` questionnaire and AI prompt templates
+- `data/sources/x_sources.yaml` feed config
+- `docs/assets/` screenshots, GIFs, and social preview assets
+- `docs/launch-checklist.md` release checklist
+
 ## Troubleshooting
 - `Missing required profile file(s)`: run `.\scripts\setup.ps1` and fill the files in `profiles/default/`.
 - `Missing Playwright session state`: run `.\scripts\capture-x-session.ps1` after logging into X.
@@ -227,14 +262,6 @@ Important rules:
 - Telegram actions do nothing: Telegram is optional and remains disabled until `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` are configured.
 - Vertex auth failures: verify `GOOGLE_CLOUD_PROJECT` and `GOOGLE_APPLICATION_CREDENTIALS`, then confirm the account has access to the configured models.
 - Performance is worse from a OneDrive-backed path. Prefer cloning to a local folder like `C:\dev\clearfeed-twitter-x-dashboard` instead of `C:\Users\...\OneDrive\...`.
-
-## Repo Layout
-- `clearfeed_dashboard/` application code
-- `scripts/` bootstrap and runtime commands
-- `profiles/default/` voice templates
-- `profiles/templates/` questionnaire and AI prompt templates
-- `data/sources/x_sources.yaml` feed config
-- `docs/launch-checklist.md` release checklist
 
 ## Contributing
 If you want to improve the source ranking, dashboard UX, or onboarding flow, open an issue first with:
@@ -248,9 +275,7 @@ If you want to improve the source ranking, dashboard UX, or onboarding flow, ope
 - Posting uses the official X API only.
 - This project is designed for human-assisted workflows, not unattended automation.
 
-## Before You Publish
-- Add sanitized dashboard screenshots or a short GIF.
-- Test the quickstart on a clean Windows machine or VM.
-- Test local-only approval.
-- Test direct posting with X API credentials.
+## About the Developer
+I built Clearfeed to solve my own problem with timeline noise and to experiment with local-first AI workflows. I like building tools around software, automation, and practical systems that help people think more clearly instead of scroll more.
 
+If you like this project, feel free to check out my other work on my [GitHub profile](https://github.com/YashSerai).
