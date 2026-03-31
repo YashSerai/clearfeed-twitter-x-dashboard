@@ -862,8 +862,12 @@ def _render_dashboard(
       gap: 18px;
       align-items: start;
     }}
+    .queue-layout > * {{
+      min-width: 0;
+    }}
     .queue-stage {{
       min-height: 560px;
+      min-width: 0;
     }}
     .queue-empty {{
       min-height: 320px;
@@ -881,12 +885,14 @@ def _render_dashboard(
       grid-template-columns: minmax(0, 1fr) 312px;
       gap: 18px;
       align-items: start;
+      min-width: 0;
     }}
     .queue-card.is-active {{ display: grid; }}
     .queue-card-main,
     .queue-card-side {{
       display: grid;
       gap: 14px;
+      min-width: 0;
     }}
     .tweet-shell {{
       position: relative;
@@ -1071,6 +1077,7 @@ def _render_dashboard(
       display: grid;
       gap: 10px;
       align-content: start;
+      min-width: 0;
     }}
     .queue-rail-label {{
       font-size: 12px;
@@ -1081,21 +1088,27 @@ def _render_dashboard(
     }}
     .queue-jump {{
       width: 100%;
+      min-width: 0;
       text-align: left;
       border: 1px solid rgba(255,255,255,.08);
       border-radius: 18px;
       padding: 12px 14px;
       background: rgba(8,13,20,.75);
+      white-space: normal;
     }}
     .queue-jump strong {{
       display: block;
       color: var(--text);
       margin-bottom: 4px;
+      white-space: normal;
+      overflow-wrap: anywhere;
     }}
     .queue-jump small {{
       display: block;
       color: var(--muted);
       line-height: 1.45;
+      white-space: normal;
+      overflow-wrap: anywhere;
     }}
     .queue-jump.is-active {{
       border-color: rgba(119,225,255,.48);
