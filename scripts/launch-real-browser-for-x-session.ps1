@@ -1,10 +1,10 @@
-$ErrorActionPreference = "Stop"
-
 param(
     [ValidateSet("auto", "chrome", "edge")]
     [string]$Browser = "auto",
     [int]$Port = 9222
 )
+
+$ErrorActionPreference = "Stop"
 
 $candidates = @()
 
