@@ -1454,8 +1454,6 @@ def _render_dashboard(
         {voice_review_html}
       </section>
       <section class="card span-12" id="archive-voice">
-        <h2>Archive Bootstrap</h2>
-        <div class="section-note">Bring in your unzipped X archive when you want a stronger starting voice or a refresh based on your longer post history. Once it has been imported, Clearfeed keeps this tucked away until you need it again.</div>
         {archive_voice_html}
       </section>
       <section class="card span-4 original-drafts-card">
@@ -2237,8 +2235,8 @@ def _archive_voice_card(archive_voice: dict[str, Any], drafting_enabled: bool) -
     summary_built_at = _fmt_time(str(latest_summary.get("created_at") or "")) if latest_summary else "Not built yet"
     latest_reviewed_at = _fmt_time(str(latest.get("reviewed_at") or latest.get("created_at") or "")) if latest else "Not run yet"
 
-    summary_title = "Bootstrap from your X archive"
-    summary_copy = "Import a historical archive when you want Clearfeed to build or refresh your starting voice from real authored posts."
+    summary_title = "Archive Bootstrap"
+    summary_copy = "Import your X archive when you want Clearfeed to build or refresh your starting voice from your real post history."
     if pending:
         summary_title = "Archive voice update ready"
         summary_copy = "A reviewable archive-based update is ready. Look it over, then decide whether to apply it."
@@ -2341,14 +2339,11 @@ def _archive_voice_card(archive_voice: dict[str, Any], drafting_enabled: bool) -
             else ""
         )
         return (
-            '<div class="voice-review-card">'
             f"{summary_block}"
             f"{input_block}"
             f"{summary_lines_html}"
             f"{summary_html}"
-            '</div>'
             '</details>'
-            "</div>"
         )
 
     approve_button = _post_button("/archive", "action", "approve", "proposal_id", str(pending["id"]), "Apply Archive Voice", "ok", "Applying archive voice...")
@@ -2359,7 +2354,6 @@ def _archive_voice_card(archive_voice: dict[str, Any], drafting_enabled: bool) -
         str(archive_voice.get("current_voice_path") or "profiles/local/Voice.md"),
     )
     return (
-        '<div class="voice-review-card">'
         f"{summary_block}"
         '<div class="voice-review-top">'
         '<div class="voice-review-heading">'
@@ -2372,9 +2366,7 @@ def _archive_voice_card(archive_voice: dict[str, Any], drafting_enabled: bool) -
         f'<div class="voice-review-meta"><span class="voice-review-pill"><strong>{_escape(str(pending.get("sample_count") or 0))}</strong><span>Archive items used</span></span></div>'
         f"{compare_html}"
         f'<div class="voice-diff"><details><summary>Raw diff</summary><pre>{_escape(str(pending.get("diff_text") or ""))}</pre></details></div>'
-        '</div>'
         '</details>'
-        "</div>"
     )
 
 
