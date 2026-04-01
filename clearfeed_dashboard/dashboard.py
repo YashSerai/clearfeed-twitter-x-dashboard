@@ -857,6 +857,73 @@ def _render_dashboard(
       line-height: 1.55;
       margin-top: 14px;
     }}
+    .archive-details {{
+      margin-top: 14px;
+      border: 1px solid rgba(255,255,255,.08);
+      border-radius: 18px;
+      background: rgba(255,255,255,.03);
+      overflow: hidden;
+    }}
+    .archive-summary {{
+      cursor: pointer;
+      list-style: none;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 14px;
+      align-items: center;
+      padding: 16px 18px;
+    }}
+    .archive-summary::-webkit-details-marker {{ display:none; }}
+    .archive-summary-main {{
+      min-width: 0;
+      display: grid;
+      gap: 8px;
+    }}
+    .archive-summary-title {{
+      display:flex;
+      align-items:center;
+      gap:10px;
+      flex-wrap:wrap;
+      font-weight: 700;
+      color: var(--text);
+    }}
+    .archive-summary-copy {{
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.45;
+    }}
+    .archive-summary-meta {{
+      display:flex;
+      flex-wrap:wrap;
+      gap:8px;
+    }}
+    .archive-chip {{
+      padding:8px 10px;
+      border-radius:999px;
+      border:1px solid rgba(255,255,255,.08);
+      background: rgba(255,255,255,.04);
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.2;
+    }}
+    .archive-chip strong {{
+      color: var(--text);
+      font-weight: 700;
+    }}
+    .archive-chevron {{
+      color: var(--muted);
+      font-size: 18px;
+      transition: transform .18s ease, color .18s ease;
+    }}
+    .archive-details[open] .archive-chevron {{
+      transform: rotate(180deg);
+      color: var(--accent);
+    }}
+    .archive-body {{
+      padding: 0 18px 18px;
+      display:grid;
+      gap:14px;
+    }}
     .voice-compare {{
       display:grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1319,6 +1386,7 @@ def _render_dashboard(
       .voice-review-actions {{ justify-content: flex-start; }}
       .voice-review-meta {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
       .voice-compare {{ grid-template-columns: 1fr; }}
+      .archive-summary {{ grid-template-columns: 1fr; }}
     }}
     @media (max-width: 720px) {{
       .wrap {{ padding: 16px; }}
@@ -1380,16 +1448,16 @@ def _render_dashboard(
         <h2>Setup Status</h2>
         <div class="setup-grid">{setup_html}</div>
       </section>
+      <section class="card span-12" id="voice-review">
+        <h2>Adaptive Voice</h2>
+        <div class="section-note">Clearfeed learns from what you edit, approve, and reject in the dashboard, then suggests a better <code>Voice.md</code> over time. <code>Humanizer.md</code> stays fixed.</div>
+        {voice_review_html}
+      </section>
       <section class="card span-12" id="archive-voice">
-        <h2>Archive Voice</h2>
-        <div class="section-note">Import your unzipped X archive to bootstrap a stronger voice profile from real authored posts. The archive summary stays local and proposals still require review before they touch <code>Voice.md</code>.</div>
+        <h2>Archive Bootstrap</h2>
+        <div class="section-note">Bring in your unzipped X archive when you want a stronger starting voice or a refresh based on your longer post history. Once it has been imported, Clearfeed keeps this tucked away until you need it again.</div>
         {archive_voice_html}
       </section>
-        <section class="card span-12" id="voice-review">
-          <h2>Adaptive Voice</h2>
-          <div class="section-note">Clearfeed learns from what you edit, approve, and reject in the dashboard, then suggests a better <code>Voice.md</code> over time. <code>Humanizer.md</code> stays fixed.</div>
-          {voice_review_html}
-        </section>
       <section class="card span-4 original-drafts-card">
         <h2>Create Original Drafts</h2>
         <div class="section-note">Use this for standalone posts that are not tied to a tweet in the reply queue.</div>
@@ -2161,29 +2229,46 @@ def _archive_voice_card(archive_voice: dict[str, Any], drafting_enabled: bool) -
     latest_summary = archive_voice.get("latest_summary") or {}
     latest = archive_voice.get("latest") or {}
     pending = archive_voice.get("pending") or {}
+    latest_status = str(latest.get("status") or "not run yet").replace("_", " ")
+    latest_archive_name = str(latest_import.get("archive_name") or "No archive imported")
+    latest_item_count = int(latest_import.get("item_count") or 0)
+    latest_summary_count = int(latest_summary.get("item_count") or latest_item_count or 0)
+    imported_at = _fmt_time(str(latest_import.get("imported_at") or "")) if latest_import else "Not imported yet"
+    summary_built_at = _fmt_time(str(latest_summary.get("created_at") or "")) if latest_summary else "Not built yet"
+    latest_reviewed_at = _fmt_time(str(latest.get("reviewed_at") or latest.get("created_at") or "")) if latest else "Not run yet"
 
-    import_meta = []
+    summary_title = "Bootstrap from your X archive"
+    summary_copy = "Import a historical archive when you want Clearfeed to build or refresh your starting voice from real authored posts."
+    if pending:
+        summary_title = "Archive voice update ready"
+        summary_copy = "A reviewable archive-based update is ready. Look it over, then decide whether to apply it."
+    elif latest_import:
+        summary_title = "Archive bootstrap is ready when you are"
+        summary_copy = "Your archive is already imported, so you only need to reopen this when you want to refresh your base voice from your longer posting history."
+
+    summary_meta_parts = []
     if latest_import:
-        import_meta.append(
-            '<span class="voice-review-pill">'
-            f'<strong>{_escape(str(latest_import.get("item_count") or 0))}</strong>'
-            '<span>Archive items imported</span>'
-            "</span>"
+        summary_meta_parts.append(
+            f'<span class="archive-chip"><strong>{latest_item_count}</strong> posts imported</span>'
         )
-        import_meta.append(
-            '<span class="voice-review-pill">'
-            f'<strong>{_escape(str(latest_import.get("archive_name") or ""))}</strong>'
-            '<span>Latest archive</span>'
-            "</span>"
+        summary_meta_parts.append(
+            f'<span class="archive-chip"><strong>{_escape(latest_archive_name)}</strong></span>'
         )
-    if latest:
-        import_meta.append(
-            '<span class="voice-review-pill">'
-            f'<strong>{_escape(str(latest.get("status") or "unknown"))}</strong>'
-            '<span>Last archive proposal</span>'
-            "</span>"
+        summary_meta_parts.append(
+            f'<span class="archive-chip"><strong>Imported</strong> {_escape(imported_at)}</span>'
         )
-    meta_html = "".join(import_meta)
+    if latest_summary:
+        summary_meta_parts.append(
+            f'<span class="archive-chip"><strong>Summary</strong> {_escape(summary_built_at)}</span>'
+        )
+    if pending:
+        summary_meta_parts.append('<span class="archive-chip"><strong>Pending update</strong> ready to review</span>')
+    elif latest:
+        summary_meta_parts.append(
+            f'<span class="archive-chip"><strong>Last result</strong> {_escape(latest_status.title())}</span>'
+        )
+    summary_meta = "".join(summary_meta_parts) or '<span class="archive-chip"><strong>Optional</strong> no archive imported yet</span>'
+    open_attr = " open" if (not latest_import or pending) else ""
 
     import_button = _post_button("/archive", "action", "import", None, None, "Import Archive", "ok", "Importing archive...")
     run_button = _post_button(
@@ -2214,28 +2299,55 @@ def _archive_voice_card(archive_voice: dict[str, Any], drafting_enabled: bool) -
         "</form>"
     )
 
+    summary_block = (
+        f'<details class="archive-details"{open_attr}>'
+        '<summary class="archive-summary">'
+        '<div class="archive-summary-main">'
+        f'<div class="archive-summary-title">{_escape(summary_title)}</div>'
+        f'<div class="archive-summary-copy">{_escape(summary_copy)}</div>'
+        f'<div class="archive-summary-meta">{summary_meta}</div>'
+        '</div>'
+        '<div class="archive-chevron">⌄</div>'
+        '</summary>'
+        '<div class="archive-body">'
+    )
+
     if not pending:
         summary_excerpt = _escape(str(latest_summary.get("summary_text") or ""))
         if len(summary_excerpt) > 420:
             summary_excerpt = summary_excerpt[:417] + "..."
+        summary_lines = []
+        if latest_import:
+            summary_lines.append(
+                f'<span class="voice-review-pill"><strong>{latest_item_count}</strong><span>Imported posts</span></span>'
+            )
+            summary_lines.append(
+                f'<span class="voice-review-pill"><strong>{latest_summary_count}</strong><span>Used in latest summary</span></span>'
+            )
+            summary_lines.append(
+                f'<span class="voice-review-pill"><strong>{_escape(latest_reviewed_at)}</strong><span>Last archive proposal</span></span>'
+            )
         summary_html = (
-            f'<div class="voice-review-empty">Latest archive summary: {summary_excerpt}</div>'
+            '<div class="voice-review-empty">'
+            '<strong>Latest archive read:</strong> '
+            f'{summary_excerpt}'
+            "</div>"
             if latest_summary
-            else '<div class="voice-review-empty">No archive imported yet.</div>'
+            else '<div class="voice-review-empty">No archive imported yet. Paste the path to an unzipped X archive when you want Clearfeed to learn from your historical posts.</div>'
+        )
+        summary_lines_html = (
+            f'<div class="voice-review-meta">{"".join(summary_lines)}</div>'
+            if summary_lines
+            else ""
         )
         return (
             '<div class="voice-review-card">'
-            '<div class="voice-review-top">'
-            '<div class="voice-review-heading">'
-            '<div class="voice-review-kicker">Archive Bootstrap</div>'
-            '<h3 class="voice-review-title">Import archive and build a stronger starting voice</h3>'
-            '<p class="voice-review-summary">Clearfeed can extract your authored tweets, replies, note tweets, and community tweets from an unzipped X archive, turn them into an archive-derived summary, and propose a better <code>Voice.md</code> without touching <code>Humanizer.md</code>.</p>'
-            "</div>"
-            '<div class="voice-review-actions"></div>'
-            "</div>"
+            f"{summary_block}"
             f"{input_block}"
+            f"{summary_lines_html}"
             f"{summary_html}"
-            f'<div class="voice-review-meta">{meta_html}</div>'
+            '</div>'
+            '</details>'
             "</div>"
         )
 
@@ -2248,23 +2360,20 @@ def _archive_voice_card(archive_voice: dict[str, Any], drafting_enabled: bool) -
     )
     return (
         '<div class="voice-review-card">'
+        f"{summary_block}"
         '<div class="voice-review-top">'
         '<div class="voice-review-heading">'
-        '<div class="voice-review-kicker">Archive Bootstrap</div>'
         f'<h3 class="voice-review-title">Archive proposal #{_escape(str(pending["id"]))} is ready</h3>'
         f'<p class="voice-review-summary">{_escape(str(pending.get("summary_text") or ""))}</p>'
         "</div>"
         f'<div class="voice-review-actions">{approve_button}{reject_button}</div>'
         "</div>"
         f"{input_block}"
-        f'<div class="voice-review-meta">{meta_html}'
-        '<span class="voice-review-pill">'
-        f'<strong>{_escape(str(pending.get("sample_count") or 0))}</strong>'
-        '<span>Archive items used</span>'
-        "</span>"
-        "</div>"
+        f'<div class="voice-review-meta"><span class="voice-review-pill"><strong>{_escape(str(pending.get("sample_count") or 0))}</strong><span>Archive items used</span></span></div>'
         f"{compare_html}"
         f'<div class="voice-diff"><details><summary>Raw diff</summary><pre>{_escape(str(pending.get("diff_text") or ""))}</pre></details></div>'
+        '</div>'
+        '</details>'
         "</div>"
     )
 
