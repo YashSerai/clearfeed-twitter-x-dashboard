@@ -877,46 +877,37 @@ def _render_dashboard(
       margin-top: 14px;
     }}
     .archive-details {{
-      margin-top: 14px;
       border: 1px solid rgba(255,255,255,.08);
-      border-radius: 18px;
-      background: rgba(255,255,255,.03);
+      border-radius: 16px;
+      background: rgba(8,14,21,.35);
       overflow: hidden;
     }}
-    .archive-summary {{
+    .archive-details summary {{
       cursor: pointer;
       list-style: none;
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) auto;
-      gap: 14px;
+      display: flex;
       align-items: center;
-      padding: 16px 18px;
-    }}
-    .archive-summary::-webkit-details-marker {{ display:none; }}
-    .archive-summary-main {{
-      min-width: 0;
-      display: grid;
-      gap: 8px;
-    }}
-    .archive-summary-title {{
-      display:flex;
-      align-items:center;
-      gap:10px;
-      flex-wrap:wrap;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 14px 16px;
       font-weight: 700;
-      color: var(--text);
     }}
-    .archive-summary-copy {{
-      color: var(--muted);
-      font-size: 13px;
-      line-height: 1.45;
+    .archive-details summary::-webkit-details-marker {{ display:none; }}
+    .archive-details[open] .dev-chevron {{
+      transform: rotate(180deg);
+      color: var(--accent);
     }}
-    .archive-summary-meta {{
+    .archive-body {{
+      padding: 0 16px 16px;
+      display:grid;
+      gap:12px;
+    }}
+    .archive-inline-meta {{
       display:flex;
       flex-wrap:wrap;
       gap:8px;
     }}
-    .archive-chip {{
+    .archive-inline-chip {{
       padding:8px 10px;
       border-radius:999px;
       border:1px solid rgba(255,255,255,.08);
@@ -925,23 +916,9 @@ def _render_dashboard(
       font-size: 12px;
       line-height: 1.2;
     }}
-    .archive-chip strong {{
+    .archive-inline-chip strong {{
       color: var(--text);
       font-weight: 700;
-    }}
-    .archive-chevron {{
-      color: var(--muted);
-      font-size: 18px;
-      transition: transform .18s ease, color .18s ease;
-    }}
-    .archive-details[open] .archive-chevron {{
-      transform: rotate(180deg);
-      color: var(--accent);
-    }}
-    .archive-body {{
-      padding: 0 18px 18px;
-      display:grid;
-      gap:14px;
     }}
     .voice-compare {{
       display:grid;
@@ -1492,9 +1469,9 @@ def _render_dashboard(
         <div class="section-note">Clearfeed learns from what you edit, keep, and reject in the dashboard, then suggests a better <code>Voice.md</code> over time. <code>Humanizer.md</code> stays fixed.</div>
         {voice_review_html}
       </section>
-      <section class="card span-12" id="archive-voice">
+      <div class="span-12" id="archive-voice">
         {archive_voice_html}
-      </section>
+      </div>
       <section class="card span-4 original-drafts-card">
         <h2>Create Original Drafts</h2>
         <div class="section-note">Use this for standalone posts that are not tied to a tweet in the reply queue.</div>
@@ -2341,37 +2318,14 @@ def _archive_voice_card(archive_voice: dict[str, Any], drafting_enabled: bool) -
     summary_built_at = _fmt_time(str(latest_summary.get("created_at") or "")) if latest_summary else "Not built yet"
     latest_reviewed_at = _fmt_time(str(latest.get("reviewed_at") or latest.get("created_at") or "")) if latest else "Not run yet"
 
-    summary_title = "Archive Bootstrap"
-    summary_copy = "Import your X archive when you want Clearfeed to build or refresh your starting voice from your real post history."
+    summary_title = "Craft Voice.md from X Archive"
+    summary_copy = "Optional. Import an unzipped X archive to build a stronger starting Voice.md from your real posts."
     if pending:
-        summary_title = "Archive voice update ready"
-        summary_copy = "A reviewable archive-based update is ready. Look it over, then decide whether to apply it."
+        summary_title = "Archive-based Voice.md update ready"
+        summary_copy = "A reviewable archive-based update is ready. Open this to compare it and decide whether to apply it."
     elif latest_import:
-        summary_title = "Archive bootstrap is ready when you are"
-        summary_copy = "Your archive is already imported, so you only need to reopen this when you want to refresh your base voice from your longer posting history."
-
-    summary_meta_parts = []
-    if latest_import:
-        summary_meta_parts.append(
-            f'<span class="archive-chip"><strong>{latest_item_count}</strong> posts imported</span>'
-        )
-        summary_meta_parts.append(
-            f'<span class="archive-chip"><strong>{_escape(latest_archive_name)}</strong></span>'
-        )
-        summary_meta_parts.append(
-            f'<span class="archive-chip"><strong>Imported</strong> {_escape(imported_at)}</span>'
-        )
-    if latest_summary:
-        summary_meta_parts.append(
-            f'<span class="archive-chip"><strong>Summary</strong> {_escape(summary_built_at)}</span>'
-        )
-    if pending:
-        summary_meta_parts.append('<span class="archive-chip"><strong>Pending update</strong> ready to review</span>')
-    elif latest:
-        summary_meta_parts.append(
-            f'<span class="archive-chip"><strong>Last result</strong> {_escape(latest_status.title())}</span>'
-        )
-    summary_meta = "".join(summary_meta_parts) or '<span class="archive-chip"><strong>Optional</strong> no archive imported yet</span>'
+        summary_title = "Refresh Voice.md from X Archive"
+        summary_copy = f"{latest_item_count} posts imported from {latest_archive_name}. Open this when you want to refresh your base voice."
     open_attr = " open" if (not latest_import or pending) else ""
 
     import_button = _post_button("/archive", "action", "import", None, None, "Import Archive", "ok", "Importing archive...")
@@ -2381,9 +2335,9 @@ def _archive_voice_card(archive_voice: dict[str, Any], drafting_enabled: bool) -
         "run",
         None,
         None,
-        "Run Archive Voice Build",
+        "Craft Voice.md Update",
         "",
-        "Building archive voice proposal...",
+        "Crafting archive-based Voice.md update...",
         disabled=(not drafting_enabled or not latest_import),
         disabled_reason=(
             "Import an archive and configure the selected AI provider first."
@@ -2405,13 +2359,12 @@ def _archive_voice_card(archive_voice: dict[str, Any], drafting_enabled: bool) -
 
     summary_block = (
         f'<details class="archive-details"{open_attr}>'
-        '<summary class="archive-summary">'
-        '<div class="archive-summary-main">'
-        f'<div class="archive-summary-title">{_escape(summary_title)}</div>'
-        f'<div class="archive-summary-copy">{_escape(summary_copy)}</div>'
-        f'<div class="archive-summary-meta">{summary_meta}</div>'
-        '</div>'
-        '<div class="archive-chevron">⌄</div>'
+        '<summary>'
+        '<span class="dev-summary-copy">'
+        f'<span class="dev-summary-title">{_escape(summary_title)}</span>'
+        f'<span class="dev-summary-subtitle">{_escape(summary_copy)}</span>'
+        '</span>'
+        '<span class="dev-chevron" aria-hidden="true">&#9662;</span>'
         '</summary>'
         '<div class="archive-body">'
     )
@@ -2431,6 +2384,10 @@ def _archive_voice_card(archive_voice: dict[str, Any], drafting_enabled: bool) -
             summary_lines.append(
                 f'<span class="voice-review-pill"><strong>{_escape(latest_reviewed_at)}</strong><span>Last archive proposal</span></span>'
             )
+        elif not latest_import:
+            summary_lines.append(
+                '<span class="archive-inline-chip"><strong>Optional</strong> You only need this if you want Clearfeed to learn from your older post history.</span>'
+            )
         summary_html = (
             '<div class="voice-review-empty">'
             '<strong>Latest archive read:</strong> '
@@ -2439,11 +2396,7 @@ def _archive_voice_card(archive_voice: dict[str, Any], drafting_enabled: bool) -
             if latest_summary
             else '<div class="voice-review-empty">No archive imported yet. Paste the path to an unzipped X archive when you want Clearfeed to learn from your historical posts.</div>'
         )
-        summary_lines_html = (
-            f'<div class="voice-review-meta">{"".join(summary_lines)}</div>'
-            if summary_lines
-            else ""
-        )
+        summary_lines_html = f'<div class="voice-review-meta">{"".join(summary_lines)}</div>' if summary_lines else ""
         return (
             f"{summary_block}"
             f"{input_block}"
@@ -2463,7 +2416,7 @@ def _archive_voice_card(archive_voice: dict[str, Any], drafting_enabled: bool) -
         f"{summary_block}"
         '<div class="voice-review-top">'
         '<div class="voice-review-heading">'
-        f'<h3 class="voice-review-title">Archive proposal #{_escape(str(pending["id"]))} is ready</h3>'
+        f'<h3 class="voice-review-title">Archive-based Voice.md update #{_escape(str(pending["id"]))} is ready</h3>'
         f'<p class="voice-review-summary">{_escape(str(pending.get("summary_text") or ""))}</p>'
         "</div>"
         f'<div class="voice-review-actions">{approve_button}{reject_button}</div>'
