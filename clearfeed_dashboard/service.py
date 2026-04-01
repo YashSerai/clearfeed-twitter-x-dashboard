@@ -989,7 +989,10 @@ class XAgentService:
                 response = self.x_api.create_tweet(draft["draft_text"], media_ids=media_ids)
         except Exception as exc:
             db.record_event(conn, "draft", draft_id, "post_failed", {"via": source_channel, "error": str(exc)})
-            raise RuntimeError(f"Posting failed for draft #{draft_id}: {exc}") from exc
+            self.logger.exception("post_failed draft_id=%s via=%s error=%s", draft_id, source_channel, exc)
+            raise RuntimeError(
+                "Posting to X failed. Open Developer Tools > Worker Log for the exact API response."
+            ) from exc
 
         tweet_id = response["data"]["id"]
         db.mark_draft_status(conn, draft_id, "posted", posted_tweet_id=tweet_id)
