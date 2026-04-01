@@ -47,6 +47,17 @@ def run_dashboard(host: str = "127.0.0.1", port: int = 8787) -> None:
                 self.end_headers()
                 self.wfile.write(body)
                 return
+            if parsed.path == "/hero-status":
+                status = _read_status(runtime_path, persisted_next_run_at=service._load_worker_next_run_at())
+                payload = _hero_status_snapshot(status)
+                body = json.dumps(payload).encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
 
             if parsed.path not in {"/", "/index.html"}:
                 self.send_response(404)
@@ -229,6 +240,31 @@ def _redirect_params(result: dict[str, Any]) -> dict[str, str]:
     return {}
 
 
+def _hero_state_badge(worker_state: str) -> str:
+    normalized = str(worker_state or "unknown")
+    if normalized == "sleeping":
+        return '<span class="badge badge-ok">Worker Sleeping</span>'
+    if normalized == "running":
+        return '<span class="badge badge-ok">Worker Running</span>'
+    if normalized == "stopped":
+        return '<span class="badge badge-warn">Worker Stopped</span>'
+    if normalized == "error":
+        return '<span class="badge badge-bad">Worker Error</span>'
+    if normalized == "starting":
+        return '<span class="badge badge-warn">Worker Starting</span>'
+    return '<span class="badge badge-warn">Worker Unknown</span>'
+
+
+def _hero_status_snapshot(status: dict[str, Any]) -> dict[str, str]:
+    worker_state = str(status.get("state", "unknown"))
+    next_run_at = str(status.get("next_run_at") or "")
+    return {
+        "badge_html": _hero_state_badge(worker_state),
+        "next_run_at": next_run_at,
+        "next_run_text": _countdown_text(next_run_at),
+    }
+
+
 def _queue_candidates(database_path: Path) -> list[sqlite3.Row]:
     return _query_rows(
         database_path,
@@ -349,19 +385,7 @@ def _render_dashboard(
     launcher_log = _tail_file(root / "logs" / "launcher.log")
     commands = _command_snippets(root)
 
-    def badge(text: str, tone: str) -> str:
-        return f'<span class="badge badge-{tone}">{text}</span>'
-
-    if worker_state == "sleeping":
-        state_badge = badge("Worker Sleeping", "ok")
-    elif worker_state == "running":
-        state_badge = badge("Worker Running", "ok")
-    elif worker_state == "stopped":
-        state_badge = badge("Worker Stopped", "warn")
-    elif worker_state == "error":
-        state_badge = badge("Worker Error", "bad")
-    else:
-        state_badge = badge("Worker Unknown", "warn")
+    state_badge = _hero_state_badge(str(worker_state))
 
     worker_state_labels = {
         "sleeping": "Sleeping",
@@ -502,8 +526,10 @@ def _render_dashboard(
     .countdown {{ margin-top: 10px; color: var(--muted); font-size: 13px; text-align: right; }}
     .hero-side {{
       display: grid;
-      gap: 10px;
+      gap: 14px;
       justify-items: end;
+      align-content: start;
+      padding-top: 4px;
     }}
     .live-note {{
       color: var(--muted);
@@ -1426,14 +1452,14 @@ def _render_dashboard(
           </div>
         </div>
         <div class="hero-side">
-          {state_badge}
+          <div data-worker-badge>{state_badge}</div>
         <div class="countdown" id="next-run-countdown" data-next-run="{_escape(next_run_at or '')}">
           Next run: {_escape(next_run_countdown)}
         </div>
         <div class="controls">
           <button type="button" class="ghost-button" data-soft-refresh>Refresh Dashboard</button>
         </div>
-        <div class="live-note" data-live-note>Auto-refresh is paused while you work.</div>
+        <div class="live-note" data-live-note>Reply queue and worker status update live. Use Refresh Dashboard for everything else.</div>
       </div>
     </div>
     {flash_html}
@@ -1929,6 +1955,14 @@ def _render_dashboard(
     return await response.json();
   }};
 
+  const fetchHeroSnapshot = async () => {{
+    const response = await fetch('/hero-status', {{ cache: 'no-store' }});
+    if (!response.ok) {{
+      throw new Error(`Hero refresh failed with status ${{response.status}}`);
+    }}
+    return await response.json();
+  }};
+
   const maybeRefreshQueue = async (force = false) => {{
     const queueRoot = document.querySelector('[data-queue-root]');
     if (!queueRoot) {{
@@ -1961,34 +1995,56 @@ def _render_dashboard(
     }}
     maybeRefreshQueue(false).catch(() => {{}});
   }}, 7000);
+  const workerBadge = document.querySelector('[data-worker-badge]');
   const el = document.getElementById('next-run-countdown');
-  if (el) {{
-    const raw = el.dataset.nextRun;
-    if (raw) {{
-      const target = new Date(raw).getTime();
-      if (!Number.isNaN(target)) {{
-        const render = () => {{
-          const delta = Math.max(0, target - Date.now());
-          if (delta === 0) {{
-            el.textContent = 'Next run: due now';
-            return;
-          }}
-          const totalSeconds = Math.floor(delta / 1000);
-          const minutes = Math.floor(totalSeconds / 60);
-          const seconds = totalSeconds % 60;
-          const hours = Math.floor(minutes / 60);
-          const remMinutes = minutes % 60;
-          if (hours > 0) {{
-            el.textContent = `Next run: ${{hours}}h ${{remMinutes}}m ${{seconds}}s`;
-          }} else {{
-            el.textContent = `Next run: ${{minutes}}m ${{seconds}}s`;
-          }}
-        }};
-        render();
-        window.setInterval(render, 1000);
+  let nextRunTarget = el?.dataset.nextRun ? new Date(el.dataset.nextRun).getTime() : Number.NaN;
+  const renderCountdown = () => {{
+    if (!el) {{
+      return;
+    }}
+    if (!Number.isFinite(nextRunTarget)) {{
+      el.textContent = 'Next run: n/a';
+      return;
+    }}
+    const delta = Math.max(0, nextRunTarget - Date.now());
+    if (delta === 0) {{
+      el.textContent = 'Next run: due now';
+      return;
+    }}
+    const totalSeconds = Math.floor(delta / 1000);
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    const hours = Math.floor(minutes / 60);
+    const remMinutes = minutes % 60;
+    if (hours > 0) {{
+      el.textContent = `Next run: ${{hours}}h ${{remMinutes}}m ${{seconds}}s`;
+    }} else {{
+      el.textContent = `Next run: ${{minutes}}m ${{seconds}}s`;
+    }}
+  }};
+  renderCountdown();
+  window.setInterval(renderCountdown, 1000);
+  const refreshHero = async () => {{
+    const snapshot = await fetchHeroSnapshot();
+    if (workerBadge && snapshot.badge_html) {{
+      workerBadge.innerHTML = snapshot.badge_html;
+    }}
+    if (el) {{
+      el.dataset.nextRun = snapshot.next_run_at || '';
+      nextRunTarget = snapshot.next_run_at ? new Date(snapshot.next_run_at).getTime() : Number.NaN;
+      if (!Number.isFinite(nextRunTarget)) {{
+        el.textContent = `Next run: ${{snapshot.next_run_text || 'n/a'}}`;
+      }} else {{
+        renderCountdown();
       }}
     }}
-  }}
+  }};
+  window.setInterval(() => {{
+    if (document.visibilityState !== 'visible') {{
+      return;
+    }}
+    refreshHero().catch(() => {{}});
+  }}, 7000);
   const liveNote = document.querySelector('[data-live-note]');
   const refreshButton = document.querySelector('[data-soft-refresh]');
   const pageLoadedAt = Date.now();
@@ -1998,11 +2054,11 @@ def _render_dashboard(
     }}
     const elapsedSeconds = Math.floor((Date.now() - pageLoadedAt) / 1000);
     if (elapsedSeconds < 60) {{
-      liveNote.textContent = `Auto-refresh is paused while you work. Snapshot age: ${{elapsedSeconds}}s.`;
+      liveNote.textContent = `Reply queue and worker status update live. Full dashboard snapshot age: ${{elapsedSeconds}}s.`;
       return;
     }}
     const elapsedMinutes = Math.floor(elapsedSeconds / 60);
-    liveNote.textContent = `Auto-refresh is paused while you work. Snapshot age: ${{elapsedMinutes}}m. Use Refresh Dashboard when you want the latest queue state.`;
+    liveNote.textContent = `Reply queue and worker status update live. Full dashboard snapshot age: ${{elapsedMinutes}}m. Use Refresh Dashboard when you want everything else refreshed.`;
   }};
   renderLiveNote();
   window.setInterval(renderLiveNote, 1000);
