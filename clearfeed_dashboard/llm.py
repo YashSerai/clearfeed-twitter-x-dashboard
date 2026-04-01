@@ -8,6 +8,67 @@ from .config import AppConfig
 from .providers import AIProvider, build_provider
 from .types import CandidateDecision, DraftPayload
 
+REPLY_QUALITY_EXAMPLES = """
+Few-shot examples:
+
+Example 1
+Target tweet:
+"Most AI products fail because teams optimize the model before they fix the workflow."
+
+Weak reply:
+"Great point. Workflow really is everything."
+
+Stronger reply:
+"Yeah, a lot of teams still treat workflow debt like a polish issue. In practice it is usually the main failure mode: handoff friction, missing context, and vague next steps kill adoption before model quality does."
+
+Why the stronger reply works:
+- It adds a mechanism.
+- It stays anchored to the claim.
+- It says something the original tweet did not already say.
+
+Example 2
+Target tweet:
+"Open source models are catching up faster than most people expected."
+
+Weak reply:
+"This space is moving so fast."
+
+Stronger reply:
+"The speed is real, but the more interesting shift is distribution. Once the capability gap narrows enough, deployment convenience and workflow fit start mattering more than leaderboard differences."
+
+Why the stronger reply works:
+- It sharpens the point instead of echoing it.
+- It introduces a concrete implication.
+
+Example 3
+Target tweet:
+"Most founders do not need more ideas. They need better judgment about what to ignore."
+
+Weak reply:
+"Facts. Focus is underrated."
+
+Stronger reply:
+"A lot of bad product decisions are really filtering failures. Teams keep weak opportunities alive too long, then call it strategy when execution gets diluted."
+
+Why the stronger reply works:
+- It reframes the idea with a sharper lens.
+- It avoids empty agreement.
+
+Example 4
+Target tweet:
+"If your onboarding needs a tutorial video, the product probably is not ready."
+
+Weak reply:
+"Totally agree."
+
+Stronger reply:
+"Usually true, though there is a useful exception: complex tools can still need orientation. The real red flag is when the video explains basic navigation instead of helping the user form a mental model."
+
+Why the stronger reply works:
+- It adds an edge case.
+- It disagrees productively instead of performing agreement.
+""".strip()
+
 
 class DraftingEngine:
     def __init__(self, config: AppConfig, style_packet: str):
@@ -74,47 +135,98 @@ Candidates:
         prompt = f"""
 You are drafting a {draft_type.replace('_', ' ')} for the user.
 
-Voice packet:
+### Primary objective
+Write a reply that improves the conversation instead of merely participating in it.
+The final draft should add genuine value: sharper thinking, a concrete example, a mechanism, a useful disagreement, a non-obvious question, an edge case, or a practical implication.
+
+### Voice packet
 {self.style_packet}
 
-Target post:
+### Context boundary for profile information
+Use the profile packet to understand the user's taste, worldview, references, and writing instincts.
+Do not treat the profile packet as default tweet content.
+Do not inject the user's company, project, product, biography, role, or background unless:
+- the target tweet makes that directly relevant, or
+- User drafting guidance clearly asks for it.
+If User drafting guidance mentions a project, company, or internal context from the profile packet, use the packet to resolve the reference correctly. Do not expand that into self-promotional copy unless the guidance explicitly calls for it.
+
+### Target post
 {json.dumps(candidate, indent=2)}
 
-Tweet thread / quote / reply context:
+### Tweet thread / quote / reply context
 {tweet_context or "None"}
 
-Tweet image context:
+### Tweet image context
 {image_context or "None"}
 
-Expanded context from linked page:
+### Expanded context from linked page
 {article_context or "None"}
 
-User drafting guidance:
+### User drafting guidance
 {user_guidance or "None"}
 
-Live web research:
+### Live web research
 {"Available for this request. Use it when it materially improves specificity or accuracy." if use_web_search else "Not enabled for this request."}
 
-Rules:
+### What a strong reply should do
+A strong reply should usually do one clear thing well:
+- sharpen the original point
+- add a concrete example
+- explain the mechanism behind the claim
+- name an edge case, caveat, or tradeoff
+- ask a non-obvious question that advances the discussion
+- offer a reasoned disagreement
+- surface a practical implication for builders, operators, or users
+- translate the point into plainer or more precise language
+
+### Failure modes to avoid
+Reject drafts that do any of the following:
+- paraphrase the target tweet without adding anything new
+- flatter the original poster
+- sound like generic AI commentary
+- rely on vague agreement like "great point", "this is important", or "facts"
+- inject the user's product or identity when it is not clearly relevant
+- could be pasted under many unrelated tweets with only minor edits
+- sound like a polished mini-essay instead of an in-feed reply
+
+### Hard drafting rules
 - Sound like the user, not a corporate account.
-- Use the profile packet for taste and background, not as copy to repeat.
-- Do not inject identity details, job titles, or background unless they are genuinely relevant to the point.
 - The default is to sound like a sharp builder on X, not to self-introduce.
 - No em dashes.
-- Add one real thing: a reaction, question, mechanism, disagreement, concrete observation, or implication.
-- Stay tightly anchored to the target post.
-- Use at least one concrete detail from the target tweet or surrounding context when possible.
+- Stay tightly anchored to the exact target post.
+- Use at least one concrete detail from the target tweet, thread, image, linked page, or user guidance when possible.
 - If Expanded context from linked page is present, treat it as primary grounding material.
 - If Live web research is available, use it to understand the broader situation around the linked page, launch, claim, or company before drafting.
 - If User drafting guidance is present, treat it as the steering brief unless it would make the reply inaccurate.
-- If the post is thin, do not force a grand thesis.
-- Before finalizing, check whether the draft could be pasted under a different AI tweet with almost no changes. If yes, rewrite it to be more specific.
-- Favor language that sounds like a person reacting in-feed, not a polished mini-essay.
-- Do not flatter the original poster.
-- Keep it concise enough for X.
+- If the post is thin, keep the reply light and specific instead of forcing a big thesis.
+- Prefer one sharp point over multiple weak points.
+- Do not default to praise.
+- Keep it concise enough for X, but do not compress so hard that the draft becomes generic.
+- For a direct reply, stay close to the claim and push the conversation forward by one step.
+- For a quote reply, you may zoom out one level and make the implication clearer, but still stay grounded in the original post.
 - Suggest an image only if a simple diagram or technical explainer visual would materially help.
-- Internally draft 3 candidate replies, pressure-test them for specificity and voice, then return only the strongest final option.
-- Return JSON only with keys: text, rationale, image_prompt, image_reason.
+
+### Few-shot guidance
+{REPLY_QUALITY_EXAMPLES}
+
+### Internal selection process
+Privately draft 3 candidates with different value modes.
+For each candidate, pressure-test it on:
+- specificity
+- conversational value
+- relevance to the exact post
+- voice fit
+- non-genericness
+- whether it avoids unnecessary product or identity injection
+Discard weak candidates.
+Return only the strongest final option.
+
+### Output format
+Return JSON only with keys:
+- text
+- rationale
+- image_prompt
+- image_reason
 """
         payload = self.provider.generate_json(
             self.config.ai_text_model,
