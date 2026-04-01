@@ -1,5 +1,5 @@
 param(
-    [string]$TaskName = "YashXAgentWorker"
+    [string]$TaskName = "ClearfeedWorker"
 )
 
 $ErrorActionPreference = "Stop"

@@ -1,5 +1,5 @@
-﻿param(
-    [string]$TaskName = "YashXAgentWorker"
+param(
+    [string]$TaskName = "ClearfeedWorker"
 )
 
 $ErrorActionPreference = "Stop"
@@ -30,4 +30,3 @@ Register-ScheduledTask `
 
 Write-Host "Registered task: $TaskName"
 Write-Host "Action: powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$scriptPath`""
-

@@ -16,6 +16,7 @@ from .config import load_config
 from .service import XAgentService
 
 CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+STARTUP_TASK_NAME = "ClearfeedWorker"
 
 
 def run_dashboard(host: str = "127.0.0.1", port: int = 8787) -> None:
@@ -2784,18 +2785,18 @@ def _scheduled_task_info(
     worker_min_delay_minutes: int,
     worker_max_delay_minutes: int,
 ) -> dict[str, str]:
-    script = r"""
-$task = Get-ScheduledTask -TaskName 'YashXAgentWorker' -ErrorAction SilentlyContinue
-$info = Get-ScheduledTaskInfo -TaskName 'YashXAgentWorker' -ErrorAction SilentlyContinue
-if ($task -and $info) {
-  [pscustomobject]@{
+    script = """
+$task = Get-ScheduledTask -TaskName '{task_name}' -ErrorAction SilentlyContinue
+$info = Get-ScheduledTaskInfo -TaskName '{task_name}' -ErrorAction SilentlyContinue
+if ($task -and $info) {{
+  [pscustomobject]@{{
     state = [string]$task.State
     lastRunTime = [string]$info.LastRunTime
     lastTaskResult = [string]$info.LastTaskResult
     nextRunTime = [string]$info.NextRunTime
-  } | ConvertTo-Json -Compress
-}
-"""
+  }} | ConvertTo-Json -Compress
+}}
+""".format(task_name=STARTUP_TASK_NAME)
     output = _run_powershell(script)
     if not output.strip():
         payload = {"state": "not found", "lastRunTime": "n/a", "lastTaskResult": "n/a", "nextRunTime": "n/a"}
@@ -2829,7 +2830,7 @@ def _command_snippets(root: Path) -> list[tuple[str, str]]:
             f'Set-Location "{root_str}"',
         ),
         (
-            "Read Worker Status",
+            "Read Worker Runtime",
             r'Get-Content .\data\runtime\worker_status.json',
         ),
         (
@@ -2837,7 +2838,11 @@ def _command_snippets(root: Path) -> list[tuple[str, str]]:
             r'Get-Content .\logs\worker.log -Tail 50 -Wait',
         ),
         (
-            "Start Worker",
+            "Read Startup Errors",
+            r'Get-Content .\logs\dashboard-startup.err.log -Tail 50' + "\n" + r'Get-Content .\logs\worker-startup.err.log -Tail 50',
+        ),
+        (
+            "Start Services",
             r'.\scripts\start_services.ps1',
         ),
         (
@@ -2853,12 +2858,12 @@ def _command_snippets(root: Path) -> list[tuple[str, str]]:
             r'.\.venv\Scripts\python.exe .\scripts\run_cycle.py',
         ),
         (
-            "Reset Local State",
-            r'.\.venv\Scripts\python.exe .\scripts\reset_state.py',
+            "Register Startup Task",
+            r'.\scripts\register_windows_task.ps1',
         ),
         (
-            "Check Scheduled Task",
-            'Get-ScheduledTask -TaskName "YashXAgentWorker"\nGet-ScheduledTaskInfo -TaskName "YashXAgentWorker"',
+            "Check Startup Task",
+            f'Get-ScheduledTask -TaskName "{STARTUP_TASK_NAME}"' + "\n" + f'Get-ScheduledTaskInfo -TaskName "{STARTUP_TASK_NAME}"',
         ),
     ]
 
