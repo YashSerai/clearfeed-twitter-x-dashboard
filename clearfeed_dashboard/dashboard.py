@@ -35,7 +35,6 @@ def run_dashboard(host: str = "127.0.0.1", port: int = 8787) -> None:
                 snapshot = _queue_snapshot(
                     database_path,
                     draft_text_limit,
-                    posting_enabled=service.config.posting_enabled,
                     drafting_enabled=service.config.drafting_enabled,
                     image_generation_enabled=bool(service.config.setup_status().get("image_generation", {}).get("ok", False)),
                 )
@@ -79,7 +78,6 @@ def run_dashboard(host: str = "127.0.0.1", port: int = 8787) -> None:
                 voice_review=voice_review,
                 drafting_enabled=service.config.drafting_enabled,
                 worker_ready=service.config.session_ready and service.config.sources_ready,
-                posting_enabled=service.config.posting_enabled,
                 telegram_enabled=service.config.telegram_enabled,
                 worker_min_delay_minutes=service.config.worker.min_delay_minutes,
                 worker_max_delay_minutes=service.config.worker.max_delay_minutes,
@@ -307,7 +305,6 @@ def _queue_candidates(database_path: Path) -> list[sqlite3.Row]:
 def _queue_snapshot(
     database_path: Path,
     draft_text_limit: int,
-    posting_enabled: bool,
     drafting_enabled: bool,
     image_generation_enabled: bool,
 ) -> dict[str, str | int]:
@@ -316,7 +313,6 @@ def _queue_snapshot(
         _candidate_card(
             row,
             draft_text_limit,
-            posting_enabled,
             drafting_enabled,
             image_generation_enabled,
         )
@@ -351,7 +347,6 @@ def _render_dashboard(
     voice_review: dict[str, Any],
     drafting_enabled: bool,
     worker_ready: bool,
-    posting_enabled: bool,
     telegram_enabled: bool,
     worker_min_delay_minutes: int,
     worker_max_delay_minutes: int,
@@ -410,7 +405,6 @@ def _render_dashboard(
     queue_snapshot = _queue_snapshot(
         database_path,
         draft_text_limit,
-        posting_enabled=posting_enabled,
         drafting_enabled=drafting_enabled,
         image_generation_enabled=bool(setup_status.get("image_generation", {}).get("ok", False)),
     )
@@ -418,7 +412,6 @@ def _render_dashboard(
         _original_draft_card(
             row,
             draft_text_limit,
-            posting_enabled,
             drafting_enabled,
             bool(setup_status.get("image_generation", {}).get("ok", False)),
         )
@@ -1394,6 +1387,26 @@ def _render_dashboard(
       line-height: 1.55;
       margin: 0;
     }}
+    .toast {{
+      position: fixed;
+      right: 24px;
+      bottom: 24px;
+      padding: 12px 16px;
+      border-radius: 14px;
+      border: 1px solid rgba(95, 205, 255, 0.35);
+      background: rgba(10, 18, 27, 0.94);
+      color: var(--text);
+      box-shadow: 0 18px 38px rgba(0, 0, 0, 0.35);
+      opacity: 0;
+      transform: translateY(10px);
+      pointer-events: none;
+      transition: opacity 120ms ease, transform 120ms ease;
+      z-index: 80;
+    }}
+    .toast.is-visible {{
+      opacity: 1;
+      transform: translateY(0);
+    }}
     @keyframes spin {{
       to {{ transform: rotate(360deg); }}
     }}
@@ -1444,10 +1457,10 @@ def _render_dashboard(
         <div>
           <div class="hero-kicker">Local X Workflow</div>
           <h1>Clearfeed</h1>
-          <p>Review high-signal tweets from your weighted lists, draft replies in your own voice, and approve what actually goes out. Tweets, drafts, and decisions stay local so you can refine the workflow over time.</p>
+          <p>Review high-signal tweets from your weighted lists, draft replies in your own voice, and move the best ones into a clean copy-and-post workflow. Tweets, drafts, and decisions stay local so you can refine the workflow over time.</p>
           <div class="hero-meta-row">
             <span class="hero-meta-pill">Discovery: weighted lists + optional home</span>
-            <span class="hero-meta-pill">{'Posting: X API live' if posting_enabled else 'Posting: local approvals only'}</span>
+            <span class="hero-meta-pill">Workflow: draft, copy, and post manually</span>
             <span class="hero-meta-pill">{'Telegram mirror: on' if telegram_enabled else 'Telegram mirror: off'}</span>
           </div>
         </div>
@@ -1476,7 +1489,7 @@ def _render_dashboard(
       </section>
       <section class="card span-12" id="voice-review">
         <h2>Adaptive Voice</h2>
-        <div class="section-note">Clearfeed learns from what you edit, approve, and reject in the dashboard, then suggests a better <code>Voice.md</code> over time. <code>Humanizer.md</code> stays fixed.</div>
+        <div class="section-note">Clearfeed learns from what you edit, keep, and reject in the dashboard, then suggests a better <code>Voice.md</code> over time. <code>Humanizer.md</code> stays fixed.</div>
         {voice_review_html}
       </section>
       <section class="card span-12" id="archive-voice">
@@ -1506,11 +1519,11 @@ def _render_dashboard(
       </section>
       <section class="card span-4">
         <h2>Reset History</h2>
-        <div class="section-note">Clears local queue, drafts, approvals, archive summaries, and voice proposal history. Keeps your <code>.env</code>, sources, and profile files.</div>
+        <div class="section-note">Clears local queue, drafts, handled history, archive summaries, and voice proposal history. Keeps your <code>.env</code>, sources, and profile files.</div>
         <div class="reset-grid">
           <div class="reset-item"><strong>Queue</strong><small>Clears candidate review state.</small></div>
           <div class="reset-item"><strong>Drafts</strong><small>Removes saved reply and original drafts.</small></div>
-          <div class="reset-item"><strong>Approvals</strong><small>Resets local approval and posting history.</small></div>
+          <div class="reset-item"><strong>Handled</strong><small>Resets local copy/manual history.</small></div>
           <div class="reset-item"><strong>Voice Data</strong><small>Removes archive imports, proposals, and learning events.</small></div>
         </div>
         <form method="post" action="/reset" onsubmit="return confirm('Reset local state and clear tracked drafts, candidates, and optional Telegram message references?');">
@@ -1521,7 +1534,7 @@ def _render_dashboard(
         <div class="queue-header">
             <div>
               <h2>Reply Queue</h2>
-              <div class="section-note">Work through one candidate at a time. Each tweet keeps its draft, edit box, and approval actions attached so you can review without losing context. Edit drafts here before approving if you want Adaptive Voice to learn from your changes. {'Posting is live through the X API.' if posting_enabled else 'Posting creds are not configured, so approvals stay local and copy-ready.'} {'' if drafting_enabled else 'Draft generation is disabled until the selected AI provider is configured.'}</div>
+              <div class="section-note">Work through one candidate at a time. Each tweet keeps its draft, edit box, and manual workflow actions attached so you can review without losing context. Edit drafts here before you save or mark them manual if you want Adaptive Voice to learn from your changes. {'' if drafting_enabled else 'Draft generation is disabled until the selected AI provider is configured.'}</div>
             </div>
             <div class="queue-toolbar">
               <span class="queue-counter" data-queue-counter>{len(queue_candidates)} in queue</span>
@@ -1614,6 +1627,7 @@ def _render_dashboard(
       <p class="busy-copy">The dashboard is still processing your request. This can take a few seconds when it is scraping, grounding, or drafting.</p>
     </div>
   </div>
+  <div class="toast" data-toast aria-hidden="true"></div>
 </body>
 <script>
 (() => {{
@@ -1648,6 +1662,8 @@ def _render_dashboard(
   window.addEventListener('beforeunload', saveScroll);
   const busyOverlay = document.querySelector('[data-busy-overlay]');
   const busyTitle = document.querySelector('[data-busy-title]');
+  const toast = document.querySelector('[data-toast]');
+  let toastTimer = null;
   const showBusy = (message) => {{
     if (!busyOverlay || !busyTitle) {{
       return;
@@ -1662,6 +1678,21 @@ def _render_dashboard(
     }}
     busyOverlay.classList.remove('is-visible');
     busyOverlay.setAttribute('aria-hidden', 'true');
+  }};
+  const showToast = (message) => {{
+    if (!toast) {{
+      return;
+    }}
+    toast.textContent = message;
+    toast.classList.add('is-visible');
+    toast.setAttribute('aria-hidden', 'false');
+    if (toastTimer) {{
+      window.clearTimeout(toastTimer);
+    }}
+    toastTimer = window.setTimeout(() => {{
+      toast.classList.remove('is-visible');
+      toast.setAttribute('aria-hidden', 'true');
+    }}, 1800);
   }};
   const editors = Array.from(document.querySelectorAll('[data-draft-editor]'));
   const maxEditorHeight = 240;
@@ -1703,6 +1734,26 @@ def _render_dashboard(
       const busyLabel = (submitter && submitter.dataset.busyLabel) || form.dataset.busyLabel || 'Working...';
       showBusy(busyLabel);
     }});
+  }});
+  document.addEventListener('click', async (event) => {{
+    const button = event.target.closest('[data-copy-draft]');
+    if (!button) {{
+      return;
+    }}
+    const draftId = button.dataset.draftId;
+    const editor = draftId ? document.getElementById(`draft-text-${{draftId}}`) : null;
+    if (!editor) {{
+      showToast('Draft text not found');
+      return;
+    }}
+    try {{
+      await navigator.clipboard.writeText(editor.value);
+      showToast('Draft copied');
+    }} catch (_err) {{
+      editor.focus();
+      editor.select();
+      showToast('Select text and copy manually');
+    }}
   }});
   const queueStateKey = `dashboard-queue:${{window.location.pathname}}`;
   const queueRefreshButton = document.querySelector('[data-refresh-queue]');
@@ -2078,7 +2129,7 @@ def _queue_jump_button(row: sqlite3.Row) -> str:
     preview = (row["text"] or "").strip().replace("\n", " ")
     if len(preview) > 96:
         preview = f"{preview[:93]}..."
-    badge = f"{_escape(row['status'])} | {_fmt_age(row['posted_at'])}"
+    badge = f"{_escape(_status_label(row['status']))} | {_fmt_age(row['posted_at'])}"
     if row["draft_id"]:
         badge = f"{badge} | draft #{row['draft_id']}"
     return (
@@ -2097,23 +2148,21 @@ def _overview_stats(database_path: Path, live_queue_count: int) -> list[dict[str
         reply_drafts = int(
             conn.execute("select count(*) from drafts where draft_type in ('reply', 'quote_reply')").fetchone()[0]
         )
-        approved_replies = int(
+        original_drafts = int(
             conn.execute(
                 """
                 select count(*)
                 from drafts
-                where draft_type in ('reply', 'quote_reply')
-                  and status in ('approved_local', 'posted', 'manual_posted')
+                where draft_type = 'original'
                 """
             ).fetchone()[0]
         )
-        posted_replies = int(
+        handled_manually = int(
             conn.execute(
                 """
                 select count(*)
                 from drafts
-                where draft_type in ('reply', 'quote_reply')
-                  and status in ('posted', 'manual_posted')
+                where status in ('manual_posted', 'approved_local', 'posted')
                 """
             ).fetchone()[0]
         )
@@ -2125,8 +2174,8 @@ def _overview_stats(database_path: Path, live_queue_count: int) -> list[dict[str
         {"label": "Tweets Collected", "value": str(collected), "detail": "Saved from your sources."},
         {"label": "Live Queue", "value": str(live_queue_count), "detail": "Waiting for review."},
         {"label": "Reply Drafts", "value": str(reply_drafts), "detail": "Generated from candidate tweets."},
-        {"label": "Approved Replies", "value": str(approved_replies), "detail": "Accepted by you."},
-        {"label": "Posted Replies", "value": str(posted_replies), "detail": "Sent or marked sent."},
+        {"label": "Original Drafts", "value": str(original_drafts), "detail": "Standalone posts ready to polish."},
+        {"label": "Handled Manually", "value": str(handled_manually), "detail": "Copied out and finished on X."},
         {"label": "Rejected Drafts", "value": str(rejected), "detail": "Useful for voice tuning later."},
     ]
 
@@ -2216,7 +2265,7 @@ def _voice_review_card(voice_review: dict[str, Any], drafting_enabled: bool) -> 
             "</div>"
             f'<div class="voice-review-actions">{run_button}</div>'
             "</div>"
-            '<div class="voice-review-empty">Best results come from editing drafts here before you approve or mark them posted. Those edits give Adaptive Voice something concrete to learn from.</div>'
+            '<div class="voice-review-empty">Best results come from editing drafts here before you save them or mark them manual. Those edits give Adaptive Voice something concrete to learn from.</div>'
             f'<div class="voice-review-meta">{meta_html}</div>'
             "</div>"
         )
@@ -2444,7 +2493,6 @@ def _setup_status_row(label: str, ok: bool, detail: str) -> str:
 def _candidate_card(
     row: sqlite3.Row,
     draft_text_limit: int,
-    posting_enabled: bool,
     drafting_enabled: bool,
     image_generation_enabled: bool,
 ) -> str:
@@ -2476,7 +2524,7 @@ def _candidate_card(
         '</div>'
         '</section>'
         f"{_candidate_action_form(row, drafting_enabled)}"
-        f"{_candidate_draft_panel(row, draft_text_limit, posting_enabled, drafting_enabled, image_generation_enabled)}"
+        f"{_candidate_draft_panel(row, draft_text_limit, drafting_enabled, image_generation_enabled)}"
         '</div>'
         '<aside class="queue-card-side">'
         '<section class="side-panel">'
@@ -2526,7 +2574,6 @@ def _candidate_action_form(row: sqlite3.Row, drafting_enabled: bool) -> str:
 def _candidate_draft_panel(
     row: sqlite3.Row,
     draft_text_limit: int,
-    posting_enabled: bool,
     drafting_enabled: bool,
     image_generation_enabled: bool,
 ) -> str:
@@ -2542,14 +2589,12 @@ def _candidate_draft_panel(
     draft_status = str(row["draft_status"] or "")
     note_bits = [
         _escape(row["draft_type"] or "draft"),
-        _escape(draft_status or "unknown"),
+        _escape(_status_label(draft_status or "unknown")),
         _fmt_time(row["draft_updated_at"]),
     ]
     draft_count = int(row["draft_count"] or 0)
     if draft_count > 1:
         note_bits.append(f"{draft_count} attempts")
-    if row["draft_posted_tweet_id"]:
-        note_bits.append(f"posted as {row['draft_posted_tweet_id']}")
     if row["draft_image_path"]:
         note_bits.append("image attached")
     guidance_html = ""
@@ -2564,7 +2609,6 @@ def _candidate_draft_panel(
         status=draft_status,
         image_prompt=row["draft_image_prompt"],
         image_path=row["draft_image_path"],
-        posting_enabled=posting_enabled,
         drafting_enabled=drafting_enabled,
         image_generation_enabled=image_generation_enabled,
     )
@@ -2572,7 +2616,7 @@ def _candidate_draft_panel(
         f'<section class="draft-inline" id="draft-{draft_id}">'
         '<div class="draft-inline-header">'
         f'<div><h3>Latest Draft #{draft_id}</h3><div class="draft-inline-note">{" | ".join(note_bits)}</div></div>'
-        f'<span class="pill {_pill_class(draft_status)}">{_escape(draft_status)}</span>'
+        f'<span class="pill {_pill_class(draft_status)}">{_escape(_status_label(draft_status))}</span>'
         '</div>'
         f"{guidance_html}"
         f"{_draft_text_editor(draft_id, row['draft_text'] or '', draft_status, draft_text_limit)}"
@@ -2584,7 +2628,6 @@ def _candidate_draft_panel(
 def _original_draft_card(
     row: sqlite3.Row,
     draft_text_limit: int,
-    posting_enabled: bool,
     drafting_enabled: bool,
     image_generation_enabled: bool,
 ) -> str:
@@ -2593,24 +2636,21 @@ def _original_draft_card(
         status=str(row["status"] or ""),
         image_prompt=row["image_prompt"],
         image_path=row["image_path"],
-        posting_enabled=posting_enabled,
         drafting_enabled=drafting_enabled,
         image_generation_enabled=image_generation_enabled,
     )
     note_bits = [
         _escape(row["draft_type"] or "original"),
-        _escape(row["status"] or "unknown"),
+        _escape(_status_label(row["status"] or "unknown")),
         _fmt_time(row["updated_at"]),
     ]
-    if row["posted_tweet_id"]:
-        note_bits.append(f"posted as {row['posted_tweet_id']}")
     if row["image_path"]:
         note_bits.append("image attached")
     return (
         f'<article class="original-card" id="draft-{row["id"]}">'
         '<div class="draft-inline-header">'
         f'<div><h3>Original Draft #{row["id"]}</h3><div class="draft-inline-note">{" | ".join(note_bits)}</div></div>'
-        f'<span class="pill {_pill_class(row["status"])}">{_escape(row["status"])}</span>'
+        f'<span class="pill {_pill_class(row["status"])}">{_escape(_status_label(row["status"]))}</span>'
         '</div>'
         f"{_draft_text_editor(int(row['id']), row['draft_text'] or '', str(row['status'] or ''), draft_text_limit)}"
         f"{controls}"
@@ -2623,27 +2663,15 @@ def _draft_action_buttons(
     status: str,
     image_prompt: Any,
     image_path: Any,
-    posting_enabled: bool,
     drafting_enabled: bool,
     image_generation_enabled: bool,
 ) -> str:
     if status != "drafted":
         return ""
     controls = ['<div class="draft-inline-actions">']
+    controls.append(_copy_button(draft_id, "Copy Draft"))
     controls.append(
-        _post_button(
-            "/draft",
-            "draft_id",
-            draft_id,
-            "action",
-            "approve",
-            "Post Now" if posting_enabled else "Approve Draft",
-            "ok",
-            "Posting to X..." if posting_enabled else "Approving draft locally...",
-        )
-    )
-    controls.append(
-        _post_button("/draft", "draft_id", draft_id, "action", "manual", "Mark Posted", "", "Marking posted...")
+        _post_button("/draft", "draft_id", draft_id, "action", "manual", "Mark Manual", "ok", "Marking manual...")
     )
     controls.append(_post_button("/draft", "draft_id", draft_id, "action", "reject", "Reject", "bad", "Rejecting draft..."))
     if image_prompt and not image_path:
@@ -2694,6 +2722,13 @@ def _post_button(
     )
 
 
+def _copy_button(draft_id: int, label: str) -> str:
+    return (
+        '<button type="button" class="ghost-button" '
+        f'data-copy-draft data-draft-id="{draft_id}" data-copy-label="{_escape(label)}">{label}</button>'
+    )
+
+
 def _draft_text_editor(draft_id: int, draft_text: str, status: str, draft_text_limit: int) -> str:
     editor_id = f"draft-text-{draft_id}"
     limit_attr = f' data-limit="{draft_text_limit}"' if draft_text_limit else ""
@@ -2733,6 +2768,28 @@ def _pill_class(status: Any) -> str:
     if normalized in {"reply", "quote_reply"}:
         return "pill-accent"
     return ""
+
+
+def _status_label(status: Any) -> str:
+    normalized = str(status or "").lower()
+    labels = {
+        "new": "New",
+        "alerted": "Queued",
+        "watched": "Watched",
+        "drafted": "Draft Ready",
+        "manual_posted": "Marked Manual",
+        "rejected": "Rejected",
+        "ignored": "Dismissed",
+        "approved_local": "Handled",
+        "posted": "Handled",
+        "running": "Running",
+        "sleeping": "Sleeping",
+        "error": "Error",
+        "reply": "Reply",
+        "quote_reply": "Quote Reply",
+        "original": "Original",
+    }
+    return labels.get(normalized, str(status or "unknown"))
 
 
 def _tail_file(path: Path, lines: int = 25) -> str:

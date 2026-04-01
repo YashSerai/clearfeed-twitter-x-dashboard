@@ -97,10 +97,10 @@ class ConfigTests(unittest.TestCase):
             self._write_repo(root)
             config = load_config(root)
             self.assertFalse(config.telegram_enabled)
-            self.assertFalse(config.posting_enabled)
             self.assertFalse(config.drafting_enabled)
             self.assertEqual(config.ai_provider, "vertex")
             self.assertEqual(len(config.sources), 1)
+            self.assertNotIn("posting", config.setup_status())
 
     def test_source_weight_env_override_and_home_support(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

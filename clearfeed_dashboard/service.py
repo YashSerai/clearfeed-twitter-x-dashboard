@@ -24,7 +24,6 @@ from .scoring import age_minutes, human_age, metrics_summary, score_breakdown
 from .scraper import XScraper
 from .style import load_style_packet
 from .telegram_api import DisabledTelegramAPI, TelegramAPI, inline_keyboard
-from .x_api import XAPI
 
 
 class XAgentService:
@@ -45,7 +44,6 @@ class XAgentService:
             if self.config.telegram_enabled
             else DisabledTelegramAPI()
         )
-        self.x_api = XAPI(self.config) if self.config.posting_enabled else None
         self.drafting = DraftingEngine(self.config, self.style_packet) if self.config.drafting_enabled else None
         self.article_expander = ArticleExpander(
             char_limit=self.config.worker.article_expand_char_limit,
@@ -119,20 +117,9 @@ class XAgentService:
                 db.record_event(conn, "draft", draft_id, "edit_text", {"via": "dashboard", "autosave": True})
                 draft = db.get_draft(conn, draft_id)
 
-            if action == "approve":
-                approval = self._approve_draft(conn, draft_id, notify_telegram=notify_telegram, source_channel="dashboard")
-                if approval["status"] == "posted":
-                    message = f"Posted draft #{draft_id} as tweet {approval['tweet_id']}."
-                else:
-                    message = f"Approved draft #{draft_id} for local posting."
-                return {"message": message}
-            if action == "manual":
-                db.mark_draft_status(conn, draft_id, "manual_posted")
-                if draft["candidate_id"]:
-                    db.set_candidate_status(conn, int(draft["candidate_id"]), "manual_posted")
-                db.record_event(conn, "draft", draft_id, "manual_posted", {"via": "dashboard"})
-                db.record_voice_learning_event(conn, draft_id, "manual_posted", "dashboard")
-                return {"message": f"Draft #{draft_id} marked as manually posted."}
+            if action in {"approve", "manual"}:
+                self._mark_draft_manual(conn, draft_id, source_channel="dashboard")
+                return {"message": f"Draft #{draft_id} marked for manual posting."}
             if action == "reject":
                 db.mark_draft_status(conn, draft_id, "rejected")
                 db.record_event(conn, "draft", draft_id, "reject", {"via": "dashboard"})
@@ -827,21 +814,21 @@ class XAgentService:
                 return
 
         if prefix == "d":
-            if action == "ap":
-                self.telegram.safe_answer_callback_query(
-                    callback_id,
-                    "Posting" if self.config.posting_enabled else "Approving locally",
-                )
-                self._approve_draft(conn, entity_id, source_channel="telegram")
-                return
-            if action == "mp":
+            if action == "cp":
                 draft = db.get_draft(conn, entity_id)
                 if draft:
-                    db.mark_draft_status(conn, entity_id, "manual_posted")
-                    if draft["candidate_id"]:
-                        db.set_candidate_status(conn, int(draft["candidate_id"]), "manual_posted")
-                    db.record_event(conn, "draft", entity_id, "manual_posted", {"via": "telegram"})
-                    db.record_voice_learning_event(conn, entity_id, "manual_posted", "telegram")
+                    db.record_event(conn, "draft", entity_id, "copy_prompted", {"via": "telegram"})
+                    self.telegram.send_message(
+                        f"Copy this draft manually:\n\n{draft['draft_text']}"
+                    )
+                self.telegram.safe_answer_callback_query(callback_id, "Sent draft text for manual copy")
+                return
+            if action == "ap":
+                self._mark_draft_manual(conn, entity_id, source_channel="telegram")
+                self.telegram.safe_answer_callback_query(callback_id, "Marked manual")
+                return
+            if action == "mp":
+                self._mark_draft_manual(conn, entity_id, source_channel="telegram")
                 self.telegram.safe_answer_callback_query(callback_id, "Marked manual")
                 return
             if action == "im":
@@ -945,12 +932,12 @@ class XAgentService:
             db.set_draft_message_id(conn, draft_id, int(message["message_id"]))
         return draft_id
 
-    def _approve_draft(
+    def _mark_draft_manual(
         self,
         conn: sqlite3.Connection,
         draft_id: int,
-        notify_telegram: bool = True,
         source_channel: str = "dashboard",
+        notify_telegram: bool = True,
     ) -> dict[str, str]:
         draft = db.get_draft(conn, draft_id)
         if not draft:
@@ -958,53 +945,16 @@ class XAgentService:
                 self.telegram.send_message(f"Draft {draft_id} not found.")
             raise RuntimeError(f"Draft {draft_id} not found")
 
-        if not self.config.posting_enabled or self.x_api is None:
-            db.mark_draft_status(conn, draft_id, "approved_local")
-            if draft["candidate_id"]:
-                db.set_candidate_status(conn, int(draft["candidate_id"]), "approved_local")
-            db.record_event(conn, "draft", draft_id, "approved_local", {"via": source_channel})
-            db.record_voice_learning_event(conn, draft_id, "approved_local", source_channel)
-            if notify_telegram and self.config.telegram_enabled:
-                self.telegram.send_message(f"Draft #{draft_id} approved for local posting.")
-            return {"status": "approved_local", "tweet_id": ""}
-
-        try:
-            media_ids = None
-            if draft["image_path"]:
-                media_ids = [self.x_api.upload_image(Path(draft["image_path"]))]
-
-            if draft["draft_type"] == "reply":
-                response = self.x_api.create_tweet(
-                    draft["draft_text"],
-                    reply_to_tweet_id=draft["tweet_id"],
-                    media_ids=media_ids,
-                )
-            elif draft["draft_type"] == "quote_reply":
-                response = self.x_api.create_tweet(
-                    draft["draft_text"],
-                    quote_tweet_id=draft["tweet_id"],
-                    media_ids=media_ids,
-                )
-            else:
-                response = self.x_api.create_tweet(draft["draft_text"], media_ids=media_ids)
-        except Exception as exc:
-            db.record_event(conn, "draft", draft_id, "post_failed", {"via": source_channel, "error": str(exc)})
-            self.logger.exception("post_failed draft_id=%s via=%s error=%s", draft_id, source_channel, exc)
-            raise RuntimeError(
-                "Posting to X failed. Open Developer Tools > Worker Log for the exact API response."
-            ) from exc
-
-        tweet_id = response["data"]["id"]
-        db.mark_draft_status(conn, draft_id, "posted", posted_tweet_id=tweet_id)
+        db.mark_draft_status(conn, draft_id, "manual_posted")
         if draft["candidate_id"]:
-            db.set_candidate_status(conn, int(draft["candidate_id"]), "posted")
-        db.record_event(conn, "draft", draft_id, "posted", {"tweet_id": tweet_id, "via": source_channel})
-        db.record_voice_learning_event(conn, draft_id, "posted", source_channel)
+            db.set_candidate_status(conn, int(draft["candidate_id"]), "manual_posted")
+        db.record_event(conn, "draft", draft_id, "manual_posted", {"via": source_channel})
+        db.record_voice_learning_event(conn, draft_id, "manual_posted", source_channel)
         if notify_telegram and self.config.telegram_enabled:
             self.telegram.send_message(
-                f"Posted `{draft['draft_type']}` successfully.\nhttps://x.com/{draft['author_handle']}/status/{tweet_id}"
+                f"Draft #{draft_id} marked for manual posting."
             )
-        return {"status": "posted", "tweet_id": tweet_id}
+        return {"status": "manual_posted", "tweet_id": ""}
 
     def _generate_draft_image(self, conn: sqlite3.Connection, draft_id: int, notify_telegram: bool = True) -> str:
         self._ensure_drafting_enabled()
@@ -1116,8 +1066,7 @@ class XAgentService:
         )
 
     def _draft_keyboard(self, draft_id: int, has_image_prompt: bool) -> dict[str, Any]:
-        approve_label = "Post Now" if self.config.posting_enabled else "Approve Draft"
-        rows: list[list[tuple[str, str]]] = [[(approve_label, f"d:ap:{draft_id}"), ("Mark Posted", f"d:mp:{draft_id}")]]
+        rows: list[list[tuple[str, str]]] = [[("Copy Draft", f"d:cp:{draft_id}"), ("Mark Manual", f"d:mp:{draft_id}")]]
         rows.append([("Reject", f"d:rj:{draft_id}")])
         if has_image_prompt and self.config.image_generation_enabled:
             rows.append([("Generate Image", f"d:im:{draft_id}")])

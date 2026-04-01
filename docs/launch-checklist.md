@@ -8,8 +8,7 @@
 
 ## Product
 - Test list discovery with user-provided list URLs only.
-- Test draft approval with no X API credentials.
-- Test direct posting with valid X API credentials.
+- Test copy-and-manual workflow from the dashboard.
 - Test Telegram only as an optional mirror, not the main workflow.
 
 ## Messaging

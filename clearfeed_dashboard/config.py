@@ -72,12 +72,6 @@ class AppConfig:
     openai_compat_timeout_seconds: int
     telegram_bot_token: str | None
     telegram_chat_id: str | None
-    x_api_key: str | None
-    x_api_secret: str | None
-    x_access_token: str | None
-    x_access_token_secret: str | None
-    x_user_id: str | None
-    x_bearer_token: str | None
     style_files: list[Path]
     worker: WorkerSettings
     sources: list[SourceConfig]
@@ -85,16 +79,6 @@ class AppConfig:
     @property
     def telegram_enabled(self) -> bool:
         return bool(self.telegram_bot_token and self.telegram_chat_id)
-
-    @property
-    def posting_enabled(self) -> bool:
-        required = [
-            self.x_api_key,
-            self.x_api_secret,
-            self.x_access_token,
-            self.x_access_token_secret,
-        ]
-        return all(bool(item) for item in required)
 
     @property
     def provider_label(self) -> str:
@@ -193,11 +177,6 @@ class AppConfig:
                 "label": "Discovery Sources",
                 "detail": f"{len(self.sources)} source(s) configured." if self.sources_ready else "Add at least one source.",
             },
-            "posting": {
-                "ok": self.posting_enabled,
-                "label": "X API Posting",
-                "detail": "Posting is enabled." if self.posting_enabled else "Optional. Local approvals only.",
-            },
             "telegram": {
                 "ok": self.telegram_enabled,
                 "label": "Telegram Mirror",
@@ -295,12 +274,6 @@ def load_config(root: str | Path | None = None) -> AppConfig:
         openai_compat_timeout_seconds=_get_int("OPENAI_COMPAT_TIMEOUT_SECONDS", 180),
         telegram_bot_token=_optional_env("TELEGRAM_BOT_TOKEN"),
         telegram_chat_id=_optional_env("TELEGRAM_CHAT_ID"),
-        x_api_key=_optional_env("X_API_KEY"),
-        x_api_secret=_optional_env("X_API_SECRET"),
-        x_access_token=_optional_env("X_ACCESS_TOKEN"),
-        x_access_token_secret=_optional_env("X_ACCESS_TOKEN_SECRET"),
-        x_user_id=_optional_env("X_USER_ID"),
-        x_bearer_token=_optional_env("X_USER_ACCESS_BEARER_TOKEN"),
         style_files=style_files,
         worker=worker,
         sources=sources,

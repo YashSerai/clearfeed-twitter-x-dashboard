@@ -228,24 +228,25 @@ Recommended flow:
 
 Clearfeed keeps `WhoAmI.md` separate and does not rewrite `Humanizer.md`.
 
-## Posting And Approval Modes
-- No X API credentials: drafts can still be reviewed and approved locally, but posting stays manual.
-- X API credentials configured: the app can post through the official X API.
-- Telegram credentials configured: Telegram can mirror approvals, but the dashboard remains the default workflow.
+## Manual Posting Workflow
+- Clearfeed drafts locally and keeps the review history on your machine.
+- When a draft is ready, copy it to X and post it manually.
+- Then mark the draft as manual in Clearfeed so it leaves the active queue and still feeds Adaptive Voice.
+- Telegram can mirror the same draft review flow, but the dashboard remains the default workspace.
 
 ## Voice Evolution
 This repo includes a local feedback loop for improving `profiles/local/Voice.md` over time.
 
 What it uses:
-- approved drafts
+- drafts you kept and finished manually
 - rejected drafts
-- drafts you manually edited in the dashboard before approval
-- manually posted drafts saved through the dashboard workflow
+- drafts you manually edited in the dashboard before marking manual
+- manually handled drafts saved through the dashboard workflow
 
 How it works:
 - the app stores those signals locally in SQLite
 - once per day, or whenever you trigger it manually, it can run a `Voice Review`
-- the review compares your accepted vs rejected patterns and proposes a new `Voice.md`
+- the review compares your kept vs rejected patterns and proposes a new `Voice.md`
 - the dashboard shows a diff and lets you approve or reject the update
 
 How archive import fits in:
@@ -255,7 +256,7 @@ How archive import fits in:
 Important rules:
 - `Humanizer.md` is treated as fixed and is never auto-rewritten
 - `Voice.md` is never auto-updated silently
-- edits made inside the dashboard are the highest-signal feedback, so prefer editing there before you approve a post
+- edits made inside the dashboard are the highest-signal feedback, so prefer editing there before you mark a post manual
 
 ## Troubleshooting
 - `Missing required profile file(s)`: run `.\scripts\setup.ps1` and fill the files in `profiles/local/`.
@@ -265,7 +266,6 @@ Important rules:
 - OpenAI-compatible text works but vision/image features are unavailable: set `AI_VISION_MODEL` and/or `AI_IMAGE_MODEL`, and make sure your provider actually supports those capabilities.
 - Archive import fails: point the import at the unzipped archive root folder, not a random parent folder.
 - Dashboard opens but nothing appears: make sure at least one list URL is set, or enable home timeline discovery.
-- Approve button does not post: this is expected if X API credentials are not configured.
 - Telegram actions do nothing: Telegram is optional and remains disabled until `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` are configured.
 - Vertex auth failures: verify `GOOGLE_CLOUD_PROJECT` and `GOOGLE_APPLICATION_CREDENTIALS`, then confirm the account has access to the configured models.
 - Archive proposals or voice reviews feel weak on a local model: try a stronger hosted model for `AI_POLISH_MODEL`.

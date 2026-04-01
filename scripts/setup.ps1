@@ -149,6 +149,7 @@ Write-Host "  If your X session is missing or stale: .\\scripts\\capture-x-sessi
 Write-Host "  Start dashboard: .\\scripts\\run-dashboard.ps1"
 Write-Host "  Start worker: .\\scripts\\run-worker.ps1"
 Write-Host "  Or both: .\\scripts\\start_services.ps1"
+Write-Host "  Clearfeed drafts locally. Copy finished posts to X and publish manually."
 Write-Host ""
 Write-Host "Archive bootstrap:"
 Write-Host "  Import an unzipped X archive: .\\scripts\\import-x-archive.ps1 -ArchiveDir \"C:\\path\\to\\twitter-archive\""

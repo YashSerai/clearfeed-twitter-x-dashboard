@@ -25,14 +25,13 @@ The point is simple: tighter inputs, better drafting, and a workflow where the h
 - Local dashboard for ranking, reviewing, and drafting.
 - Voice-aware drafting using your own local `WhoAmI.md`, `Voice.md`, and `Humanizer.md`.
 - Provider-agnostic AI setup: Vertex or OpenAI-compatible endpoints.
-- Local voice memory that learns from approved, rejected, and dashboard-edited drafts.
+- Local voice memory that learns from kept, rejected, and dashboard-edited drafts.
 - Archive import that can bootstrap a stronger `Voice.md` from your real X history.
 - Adaptive Voice suggestions that improve `Voice.md` from your real decisions over time.
 - AI-assisted profile setup with questionnaire templates and prompt packs.
 - Editable drafts so you can replace or steer the AI instead of accepting whatever it generated.
-- Local-first approvals by default.
+- Copy-first manual posting workflow.
 - Optional Telegram mirroring.
-- Optional direct posting through the official X API.
 
 ## Dashboard Preview
 Add a sanitized hero screenshot at `docs/assets/dashboard-screenshot.png`.
@@ -54,11 +53,11 @@ When you add it, use:
 - Finding posts that are actually worth replying to.
 - Turning rough ideas into reply drafts in your own voice.
 - Editing before posting so AI stays useful instead of taking over.
-- Letting Adaptive Voice learn from what you approve, reject, and rewrite.
+- Letting Adaptive Voice learn from what you keep, reject, and rewrite.
 
 ## Why It's Different
 - Better inputs first. The core job is filtering the feed, not just generating text.
-- Human-in-the-loop by default. You edit, approve, reject, or post manually.
+- Human-in-the-loop by default. You edit, copy, reject, or post manually.
 - Voice improves from real decisions over time instead of staying static.
 - Local-first setup keeps your workflow, profile files, and review history on your machine.
 - You can run it on hosted models or local OpenAI-compatible servers instead of being locked into one vendor.
@@ -71,9 +70,8 @@ You follow AI builders, startup founders, and infra researchers across a few lis
 2. Each source gets its own weight.
 3. The worker scrapes recent posts, scores them, and pushes the best candidates into the local dashboard.
 4. You draft a reply, quote reply, or original post in your own voice.
-5. You edit in the dashboard, approve, reject, or mark it as manually posted.
+5. You edit in the dashboard, copy the final draft to X, and mark it manual when you're done.
 6. The app saves those decisions locally and lets Adaptive Voice propose better `Voice.md` updates over time.
-7. If posting credentials are configured, the app can post through the X API. If not, the draft stays local and copy-ready.
 
 ## Workflow Demo
 Add a short workflow GIF at `docs/assets/clearfeed-workflow.gif`.
@@ -82,7 +80,7 @@ Recommended sequence:
 1. open a candidate tweet
 2. click `Draft Reply`
 3. edit the draft in the dashboard
-4. approve the draft
+4. copy the draft and mark it manual
 
 Keep it to roughly 5-10 seconds and avoid showing private data.
 
@@ -152,7 +150,7 @@ The full setup guide lives in [docs/setup-guide.md](docs/setup-guide.md). It cov
 - source configuration
 - voice setup
 - archive import
-- posting modes
+- manual posting workflow
 - voice evolution
 - troubleshooting
 
@@ -175,7 +173,7 @@ If you want to improve the source ranking, dashboard UX, or onboarding flow, ope
 ## Notes
 - This project uses Playwright for local discovery. You are responsible for complying with X rules, your account setup, and any applicable platform restrictions.
 - Home timeline scraping is optional and disabled by default.
-- Posting uses the official X API only.
+- Clearfeed is intentionally draft-first and manual-post only.
 - This project is designed for human-assisted workflows, not unattended automation.
 - Local models are supported through the OpenAI-compatible path, but stronger hosted models usually produce better archive-to-voice proposals and cleaner Adaptive Voice updates.
 

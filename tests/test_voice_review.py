@@ -162,8 +162,8 @@ class VoiceReviewTests(unittest.TestCase):
             with managed_connection(config.database_path) as conn:
                 draft_1 = db.insert_draft(conn, None, "reply", "generated reply one", "reason", "fake-model")
                 db.update_draft_text(conn, draft_1, "edited final reply one")
-                db.mark_draft_status(conn, draft_1, "approved_local")
-                db.record_voice_learning_event(conn, draft_1, "approved_local", "dashboard")
+                db.mark_draft_status(conn, draft_1, "manual_posted")
+                db.record_voice_learning_event(conn, draft_1, "manual_posted", "dashboard")
 
                 draft_2 = db.insert_draft(conn, None, "reply", "generated reply two", "reason", "fake-model")
                 db.mark_draft_status(conn, draft_2, "rejected")
