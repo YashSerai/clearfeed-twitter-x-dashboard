@@ -1496,11 +1496,11 @@ def _render_dashboard(
       </section>
       <section class="card span-4">
         <h2>Reset History</h2>
-        <div class="section-note">Clears local queue, drafts, handled history, archive summaries, and voice proposal history. Keeps your <code>.env</code>, sources, and profile files.</div>
+        <div class="section-note">Clears local queue, drafts, posted history, archive summaries, and voice proposal history. Keeps your <code>.env</code>, sources, and profile files.</div>
         <div class="reset-grid">
           <div class="reset-item"><strong>Queue</strong><small>Clears candidate review state.</small></div>
           <div class="reset-item"><strong>Drafts</strong><small>Removes saved reply and original drafts.</small></div>
-          <div class="reset-item"><strong>Handled</strong><small>Resets local copy/manual history.</small></div>
+          <div class="reset-item"><strong>Posted</strong><small>Clears drafts you already copied out or marked as posted.</small></div>
           <div class="reset-item"><strong>Voice Data</strong><small>Removes archive imports, proposals, and learning events.</small></div>
         </div>
         <form method="post" action="/reset" onsubmit="return confirm('Reset local state and clear tracked drafts, candidates, and optional Telegram message references?');">
