@@ -880,7 +880,7 @@ def _render_dashboard(
     .archive-details {{
       border: 1px solid rgba(255,255,255,.08);
       border-radius: 16px;
-      background: rgba(8,14,21,.35);
+      background: rgba(255,255,255,.04);
       overflow: hidden;
     }}
     .archive-details summary {{
@@ -902,6 +902,23 @@ def _render_dashboard(
       padding: 0 16px 16px;
       display:grid;
       gap:12px;
+    }}
+    .archive-actions-row {{
+      display:flex;
+      flex-wrap:wrap;
+      align-items:center;
+      gap:10px 12px;
+    }}
+    .archive-actions-row .candidate-form {{
+      flex: 1 1 520px;
+      margin: 0;
+    }}
+    .archive-actions-row .candidate-form .controls {{
+      align-items:center;
+    }}
+    .archive-actions-row .archive-inline-chip {{
+      flex: 0 1 360px;
+      margin-left: auto;
     }}
     .archive-inline-meta {{
       display:flex;
@@ -2311,6 +2328,7 @@ def _archive_voice_card(archive_voice: dict[str, Any], drafting_enabled: bool) -
     latest_summary = archive_voice.get("latest_summary") or {}
     latest = archive_voice.get("latest") or {}
     pending = archive_voice.get("pending") or {}
+    current_voice_text = str(archive_voice.get("current_voice_text") or "")
     latest_status = str(latest.get("status") or "not run yet").replace("_", " ")
     latest_archive_name = str(latest_import.get("archive_name") or "No archive imported")
     latest_item_count = int(latest_import.get("item_count") or 0)
@@ -2327,7 +2345,8 @@ def _archive_voice_card(archive_voice: dict[str, Any], drafting_enabled: bool) -
     elif latest_import:
         summary_title = "Refresh Voice.md from X Archive"
         summary_copy = f"{latest_item_count} posts imported from {latest_archive_name}. Open this when you want to refresh your base voice."
-    open_attr = " open" if (not latest_import or pending) else ""
+    has_local_voice = bool(current_voice_text.strip())
+    open_attr = " open" if (pending or not has_local_voice) else ""
 
     import_button = _post_button("/archive", "action", "import", None, None, "Import Archive", "ok", "Importing archive...")
     run_button = _post_button(
@@ -2347,6 +2366,9 @@ def _archive_voice_card(archive_voice: dict[str, Any], drafting_enabled: bool) -
         ),
     )
 
+    optional_chip = (
+        '<span class="archive-inline-chip"><strong>Optional</strong> You only need this if you want Clearfeed to learn from your older post history.</span>'
+    )
     input_block = (
         '<form method="post" action="/archive" class="candidate-form">'
         '<input type="hidden" name="action" value="import">'
@@ -2356,6 +2378,12 @@ def _archive_voice_card(archive_voice: dict[str, Any], drafting_enabled: bool) -
         f'{run_button}'
         "</div>"
         "</form>"
+    )
+    input_row = (
+        '<div class="archive-actions-row">'
+        f"{input_block}"
+        f'{optional_chip if not latest_import else ""}'
+        "</div>"
     )
 
     summary_block = (
@@ -2385,10 +2413,6 @@ def _archive_voice_card(archive_voice: dict[str, Any], drafting_enabled: bool) -
             summary_lines.append(
                 f'<span class="voice-review-pill"><strong>{_escape(latest_reviewed_at)}</strong><span>Last archive proposal</span></span>'
             )
-        elif not latest_import:
-            summary_lines.append(
-                '<span class="archive-inline-chip"><strong>Optional</strong> You only need this if you want Clearfeed to learn from your older post history.</span>'
-            )
         summary_html = (
             '<div class="voice-review-empty">'
             '<strong>Latest archive read:</strong> '
@@ -2400,7 +2424,7 @@ def _archive_voice_card(archive_voice: dict[str, Any], drafting_enabled: bool) -
         summary_lines_html = f'<div class="voice-review-meta">{"".join(summary_lines)}</div>' if summary_lines else ""
         return (
             f"{summary_block}"
-            f"{input_block}"
+            f"{input_row}"
             f"{summary_lines_html}"
             f"{summary_html}"
             '</details>'
@@ -2422,7 +2446,7 @@ def _archive_voice_card(archive_voice: dict[str, Any], drafting_enabled: bool) -
         "</div>"
         f'<div class="voice-review-actions">{approve_button}{reject_button}</div>'
         "</div>"
-        f"{input_block}"
+        f"{input_row}"
         f'<div class="voice-review-meta"><span class="voice-review-pill"><strong>{_escape(str(pending.get("sample_count") or 0))}</strong><span>Archive items used</span></span></div>'
         f"{compare_html}"
         f'<div class="voice-diff"><details><summary>Raw diff</summary><pre>{_escape(str(pending.get("diff_text") or ""))}</pre></details></div>'
