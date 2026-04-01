@@ -436,14 +436,11 @@ def _render_dashboard(
         f"<div class='command-block'><div class='command-label'>{_escape(label)}</div><pre>{_escape(cmd)}</pre></div>"
         for label, cmd in commands
     )
-    workflow_html = "".join(
-        f"<li><strong>{_escape(key)}</strong><span>{_escape(value)}</span></li>"
-        for key, value in [
-            ("Status", worker_state_label),
-            ("Last update", _fmt_time(updated_at)),
-            ("Next scan", next_run_countdown),
-            ("Cadence", cadence_label),
-        ]
+    workflow_html = (
+        f"<li><strong>Status</strong><span>{_escape(worker_state_label)}</span></li>"
+        f"<li><strong>Last update</strong><span>{_escape(_fmt_time(updated_at))}</span></li>"
+        f'<li><strong>Next scan</strong><span id="worker-next-scan" data-next-run="{_escape(next_run_at or "")}">{_escape(next_run_countdown)}</span></li>'
+        f"<li><strong>Cadence</strong><span>{_escape(cadence_label)}</span></li>"
     )
     setup_html = "".join(
         _setup_status_row(str(item["label"]), bool(item["ok"]), str(item["detail"])) for item in setup_status.values()
@@ -2032,19 +2029,15 @@ def _render_dashboard(
   }}, 7000);
   const workerBadge = document.querySelector('[data-worker-badge]');
   const el = document.getElementById('next-run-countdown');
+  const workerNextScanEl = document.getElementById('worker-next-scan');
   let nextRunTarget = el?.dataset.nextRun ? new Date(el.dataset.nextRun).getTime() : Number.NaN;
-  const renderCountdown = () => {{
-    if (!el) {{
-      return;
-    }}
+  const formatCountdownText = (prefix = '') => {{
     if (!Number.isFinite(nextRunTarget)) {{
-      el.textContent = 'Next run: n/a';
-      return;
+      return `${{prefix}}n/a`;
     }}
     const delta = Math.max(0, nextRunTarget - Date.now());
     if (delta === 0) {{
-      el.textContent = 'Next run: due now';
-      return;
+      return `${{prefix}}due now`;
     }}
     const totalSeconds = Math.floor(delta / 1000);
     const minutes = Math.floor(totalSeconds / 60);
@@ -2052,9 +2045,16 @@ def _render_dashboard(
     const hours = Math.floor(minutes / 60);
     const remMinutes = minutes % 60;
     if (hours > 0) {{
-      el.textContent = `Next run: ${{hours}}h ${{remMinutes}}m ${{seconds}}s`;
-    }} else {{
-      el.textContent = `Next run: ${{minutes}}m ${{seconds}}s`;
+      return `${{prefix}}${{hours}}h ${{remMinutes}}m ${{seconds}}s`;
+    }}
+    return `${{prefix}}${{minutes}}m ${{seconds}}s`;
+  }};
+  const renderCountdown = () => {{
+    if (el) {{
+      el.textContent = formatCountdownText('Next run: ');
+    }}
+    if (workerNextScanEl) {{
+      workerNextScanEl.textContent = formatCountdownText();
     }}
   }};
   renderCountdown();
@@ -2067,12 +2067,11 @@ def _render_dashboard(
     if (el) {{
       el.dataset.nextRun = snapshot.next_run_at || '';
       nextRunTarget = snapshot.next_run_at ? new Date(snapshot.next_run_at).getTime() : Number.NaN;
-      if (!Number.isFinite(nextRunTarget)) {{
-        el.textContent = `Next run: ${{snapshot.next_run_text || 'n/a'}}`;
-      }} else {{
-        renderCountdown();
-      }}
     }}
+    if (workerNextScanEl) {{
+      workerNextScanEl.dataset.nextRun = snapshot.next_run_at || '';
+    }}
+    renderCountdown();
   }};
   window.setInterval(() => {{
     if (document.visibilityState !== 'visible') {{
