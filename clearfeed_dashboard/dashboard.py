@@ -1674,7 +1674,6 @@ def _render_dashboard(
       toast.setAttribute('aria-hidden', 'true');
     }}, 1800);
   }};
-  const editors = Array.from(document.querySelectorAll('[data-draft-editor]'));
   const maxEditorHeight = 240;
   const syncEditor = (editor) => {{
     editor.style.height = 'auto';
@@ -1687,34 +1686,46 @@ def _render_dashboard(
       counter.textContent = limit ? `${{editor.value.length}} / ${{limit}}` : `${{editor.value.length}} chars`;
     }}
   }};
-  editors.forEach((editor) => {{
-    syncEditor(editor);
-    editor.addEventListener('input', () => {{
-      editor.dataset.dirty = 'true';
+  const bindDraftEditorsAndForms = (scope = document) => {{
+    const editors = Array.from(scope.querySelectorAll('[data-draft-editor]'));
+    editors.forEach((editor) => {{
       syncEditor(editor);
+      if (editor.dataset.bound === 'true') {{
+        return;
+      }}
+      editor.dataset.bound = 'true';
+      editor.addEventListener('input', () => {{
+        editor.dataset.dirty = 'true';
+        syncEditor(editor);
+      }});
     }});
-  }});
-  const postForms = Array.from(document.querySelectorAll('form[method="post"]'));
-  postForms.forEach((form) => {{
-    form.addEventListener('submit', (event) => {{
-      let editor = form.querySelector('[data-draft-editor]');
-      const draftIdField = form.querySelector('input[name="draft_id"]');
-      const hiddenDraftText = form.querySelector('input[name="draft_text"]');
-      if (!editor && draftIdField && hiddenDraftText) {{
-        editor = document.getElementById(`draft-text-${{draftIdField.value}}`);
-        if (editor) {{
-          hiddenDraftText.value = editor.value;
+    const postForms = Array.from(scope.querySelectorAll('form[method="post"]'));
+    postForms.forEach((form) => {{
+      if (form.dataset.bound === 'true') {{
+        return;
+      }}
+      form.dataset.bound = 'true';
+      form.addEventListener('submit', (event) => {{
+        let editor = form.querySelector('[data-draft-editor]');
+        const draftIdField = form.querySelector('input[name="draft_id"]');
+        const hiddenDraftText = form.querySelector('input[name="draft_text"]');
+        if (!editor && draftIdField && hiddenDraftText) {{
+          editor = document.getElementById(`draft-text-${{draftIdField.value}}`);
+          if (editor) {{
+            hiddenDraftText.value = editor.value;
+          }}
         }}
-      }}
-      if (editor) {{
-        editor.dataset.dirty = 'false';
-      }}
-      saveScroll();
-      const submitter = event.submitter;
-      const busyLabel = (submitter && submitter.dataset.busyLabel) || form.dataset.busyLabel || 'Working...';
-      showBusy(busyLabel);
+        if (editor) {{
+          editor.dataset.dirty = 'false';
+        }}
+        saveScroll();
+        const submitter = event.submitter;
+        const busyLabel = (submitter && submitter.dataset.busyLabel) || form.dataset.busyLabel || 'Working...';
+        showBusy(busyLabel);
+      }});
     }});
-  }});
+  }};
+  bindDraftEditorsAndForms();
   document.addEventListener('click', async (event) => {{
     const button = event.target.closest('[data-copy-draft]');
     if (!button) {{
@@ -1975,6 +1986,7 @@ def _render_dashboard(
     if (rail) {{
       rail.innerHTML = `<div class="queue-rail-label">Jump List</div>${{snapshot.rail_html || ''}}`;
     }}
+    bindDraftEditorsAndForms(queueRoot);
     initializeQueue();
     setQueueRefreshPrompt(false);
   }};
