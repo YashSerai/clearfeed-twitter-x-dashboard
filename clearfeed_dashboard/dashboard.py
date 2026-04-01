@@ -878,9 +878,9 @@ def _render_dashboard(
       margin-top: 14px;
     }}
     .archive-details {{
-      border: 1px solid rgba(255,255,255,.08);
+      border: 1px solid var(--border);
       border-radius: 16px;
-      background: rgba(255,255,255,.04);
+      background: linear-gradient(180deg, var(--panel), var(--panel-2));
       overflow: hidden;
     }}
     .archive-details summary {{
@@ -903,22 +903,9 @@ def _render_dashboard(
       display:grid;
       gap:12px;
     }}
-    .archive-actions-row {{
-      display:flex;
-      flex-wrap:wrap;
+    .archive-body .controls {{
       align-items:center;
       gap:10px 12px;
-    }}
-    .archive-actions-row .candidate-form {{
-      flex: 1 1 520px;
-      margin: 0;
-    }}
-    .archive-actions-row .candidate-form .controls {{
-      align-items:center;
-    }}
-    .archive-actions-row .archive-inline-chip {{
-      flex: 0 1 360px;
-      margin-left: auto;
     }}
     .archive-inline-meta {{
       display:flex;
@@ -929,10 +916,11 @@ def _render_dashboard(
       padding:8px 10px;
       border-radius:999px;
       border:1px solid rgba(255,255,255,.08);
-      background: rgba(255,255,255,.04);
+      background: rgba(255,255,255,.06);
       color: var(--muted);
       font-size: 12px;
       line-height: 1.2;
+      max-width: 420px;
     }}
     .archive-inline-chip strong {{
       color: var(--text);
@@ -2376,14 +2364,9 @@ def _archive_voice_card(archive_voice: dict[str, Any], drafting_enabled: bool) -
         '<div class="controls">'
         f'{import_button}'
         f'{run_button}'
-        "</div>"
-        "</form>"
-    )
-    input_row = (
-        '<div class="archive-actions-row">'
-        f"{input_block}"
         f'{optional_chip if not latest_import else ""}'
         "</div>"
+        "</form>"
     )
 
     summary_block = (
@@ -2424,7 +2407,7 @@ def _archive_voice_card(archive_voice: dict[str, Any], drafting_enabled: bool) -
         summary_lines_html = f'<div class="voice-review-meta">{"".join(summary_lines)}</div>' if summary_lines else ""
         return (
             f"{summary_block}"
-            f"{input_row}"
+            f"{input_block}"
             f"{summary_lines_html}"
             f"{summary_html}"
             '</details>'
@@ -2446,7 +2429,7 @@ def _archive_voice_card(archive_voice: dict[str, Any], drafting_enabled: bool) -
         "</div>"
         f'<div class="voice-review-actions">{approve_button}{reject_button}</div>'
         "</div>"
-        f"{input_row}"
+        f"{input_block}"
         f'<div class="voice-review-meta"><span class="voice-review-pill"><strong>{_escape(str(pending.get("sample_count") or 0))}</strong><span>Archive items used</span></span></div>'
         f"{compare_html}"
         f'<div class="voice-diff"><details><summary>Raw diff</summary><pre>{_escape(str(pending.get("diff_text") or ""))}</pre></details></div>'
