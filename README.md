@@ -23,7 +23,7 @@ The point is simple: tighter inputs, better drafting, and a workflow where the h
 - Weighted discovery across multiple X Lists.
 - Optional home timeline scraping as an extra signal source.
 - Local dashboard for ranking, reviewing, and drafting.
-- Voice-aware drafting using your own `WhoAmI.md`, `Voice.md`, and `Humanizer.md`.
+- Voice-aware drafting using your own local `WhoAmI.md`, `Voice.md`, and `Humanizer.md`.
 - Provider-agnostic AI setup: Vertex or OpenAI-compatible endpoints.
 - Local voice memory that learns from approved, rejected, and dashboard-edited drafts.
 - Archive import that can bootstrap a stronger `Voice.md` from your real X history.
@@ -111,23 +111,24 @@ If `.env` already exists, it updates provider-related keys in place rather than 
 
 Then:
 1. Fill in `.env`.
-2. Build `profiles/default/WhoAmI.md`.
-3. Build `profiles/default/Voice.md`.
-4. Add your feed URLs and weights in `.env` or `data/sources/x_sources.yaml`.
-5. Optionally set `HOME_TIMELINE_ENABLED=true`.
-6. Save a logged-in X session:
+2. Build `profiles/local/WhoAmI.md`.
+3. Build `profiles/local/Voice.md`.
+4. Review `profiles/local/Humanizer.md`.
+5. Add your feed URLs and weights in `.env` or `data/sources/x_sources.yaml`.
+6. Optionally set `HOME_TIMELINE_ENABLED=true`.
+7. Save a logged-in X session:
 
 ```powershell
 .\scripts\capture-x-session.ps1
 ```
 
-7. Start the dashboard:
+8. Start the dashboard:
 
 ```powershell
 .\scripts\run-dashboard.ps1
 ```
 
-8. In a second terminal, start the worker:
+9. In a second terminal, start the worker:
 
 ```powershell
 .\scripts\run-worker.ps1
@@ -158,7 +159,8 @@ The full setup guide lives in [docs/setup-guide.md](docs/setup-guide.md). It cov
 ## Repo Layout
 - `clearfeed_dashboard/` application code
 - `scripts/` bootstrap and runtime commands
-- `profiles/default/` voice templates
+- `profiles/default/` starter profile templates tracked in git
+- `profiles/local/` your live profile files, ignored by git
 - `profiles/templates/` questionnaire and AI prompt templates
 - `data/sources/x_sources.yaml` feed config
 - `docs/assets/` screenshots, GIFs, and social preview assets

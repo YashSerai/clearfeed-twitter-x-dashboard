@@ -41,11 +41,26 @@ $paths = @(
     ".\\data\\generated",
     ".\\data\\runtime",
     ".\\logs",
-    ".\\profiles\\generated"
+    ".\\profiles\\generated",
+    ".\\profiles\\history",
+    ".\\profiles\\local"
 )
 
 foreach ($path in $paths) {
     New-Item -ItemType Directory -Force -Path $path | Out-Null
+}
+
+$profilePairs = @(
+    @{ Source = ".\\profiles\\default\\WhoAmI.md"; Target = ".\\profiles\\local\\WhoAmI.md" },
+    @{ Source = ".\\profiles\\default\\Voice.md"; Target = ".\\profiles\\local\\Voice.md" },
+    @{ Source = ".\\profiles\\default\\Humanizer.md"; Target = ".\\profiles\\local\\Humanizer.md" }
+)
+
+foreach ($pair in $profilePairs) {
+    if (-not (Test-Path $pair.Target) -and (Test-Path $pair.Source)) {
+        Copy-Item $pair.Source $pair.Target
+        Write-Host "Created $($pair.Target) from starter template"
+    }
 }
 
 if (-not (Test-Path ".\\.env")) {
@@ -124,8 +139,10 @@ Write-Host "Profile setup:"
 Write-Host "  Fill profiles\\templates\\WhoAmI.Questionnaire.md"
 Write-Host "  Fill profiles\\templates\\Voice.Questionnaire.md"
 Write-Host "  Then generate or edit:"
-Write-Host "    profiles\\default\\WhoAmI.md"
-Write-Host "    profiles\\default\\Voice.md"
+Write-Host "    profiles\\local\\WhoAmI.md"
+Write-Host "    profiles\\local\\Voice.md"
+Write-Host "    profiles\\local\\Humanizer.md"
+Write-Host "  These local profile files are ignored by git."
 Write-Host ""
 Write-Host "Runtime:"
 Write-Host "  If your X session is missing or stale: .\\scripts\\capture-x-session.ps1"

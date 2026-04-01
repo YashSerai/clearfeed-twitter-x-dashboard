@@ -218,7 +218,7 @@ class XAgentService:
                 difflib.unified_diff(
                     current_voice.splitlines(),
                     proposal_text.splitlines(),
-                    fromfile="profiles/default/Voice.md",
+                    fromfile=self._display_profile_path(self._voice_file_path()),
                     tofile="profiles/proposals/Voice.archive.proposed.md",
                     lineterm="",
                 )
@@ -241,6 +241,8 @@ class XAgentService:
             }
 
     def archive_voice_status(self) -> dict[str, Any]:
+        voice_path = self._voice_file_path()
+        current_voice_text = voice_path.read_text(encoding="utf-8") if voice_path.exists() else ""
         with managed_connection(self.config.database_path) as conn:
             db.bootstrap(conn)
             latest_import = db.get_latest_archive_import(conn)
@@ -270,16 +272,17 @@ class XAgentService:
                     if latest_summary
                     else None
                 ),
-                "pending": (
-                    {
-                        "id": int(pending["id"]),
-                        "summary_text": str(pending["summary_text"]),
-                        "diff_text": str(pending["diff_text"]),
-                        "sample_count": int(pending["sample_count"]),
-                        "created_at": str(pending["created_at"]),
-                    }
-                    if pending
-                    else None
+                  "pending": (
+                      {
+                          "id": int(pending["id"]),
+                          "summary_text": str(pending["summary_text"]),
+                          "diff_text": str(pending["diff_text"]),
+                          "proposal_text": str(pending["proposal_text"]),
+                          "sample_count": int(pending["sample_count"]),
+                          "created_at": str(pending["created_at"]),
+                      }
+                      if pending
+                      else None
                 ),
                 "latest": (
                     {
@@ -288,10 +291,12 @@ class XAgentService:
                         "created_at": str(latest["created_at"]),
                         "reviewed_at": str(latest["reviewed_at"] or ""),
                     }
-                    if latest
-                    else None
-                ),
-            }
+                      if latest
+                      else None
+                  ),
+                  "current_voice_path": self._display_profile_path(voice_path),
+                  "current_voice_text": current_voice_text,
+              }
 
     def maybe_run_voice_review(self, force: bool = False) -> dict[str, Any]:
         self._ensure_drafting_enabled()
@@ -371,7 +376,7 @@ class XAgentService:
                 difflib.unified_diff(
                     current_voice.splitlines(),
                     proposal_text.splitlines(),
-                    fromfile="profiles/default/Voice.md",
+                    fromfile=self._display_profile_path(voice_path),
                     tofile="profiles/proposals/Voice.proposed.md",
                     lineterm="",
                 )
@@ -444,6 +449,8 @@ class XAgentService:
             return {"message": f"Rejected {proposal_label} #{proposal_id}."}
 
     def voice_review_status(self) -> dict[str, Any]:
+        voice_path = self._voice_file_path()
+        current_voice_text = voice_path.read_text(encoding="utf-8") if voice_path.exists() else ""
         with managed_connection(self.config.database_path) as conn:
             db.bootstrap(conn)
             pending = db.get_latest_voice_review_proposal(conn, status="pending", proposal_type="learning")
@@ -451,16 +458,17 @@ class XAgentService:
             reviewed_until = int(latest["reviewed_until_event_id"]) if latest else 0
             return {
                 "enabled": bool(self.config.worker.voice_review_enabled),
-                "pending": (
-                    {
-                        "id": int(pending["id"]),
-                        "summary_text": str(pending["summary_text"]),
-                        "diff_text": str(pending["diff_text"]),
-                        "sample_count": int(pending["sample_count"]),
-                        "created_at": str(pending["created_at"]),
-                    }
-                    if pending
-                    else None
+                  "pending": (
+                      {
+                          "id": int(pending["id"]),
+                          "summary_text": str(pending["summary_text"]),
+                          "diff_text": str(pending["diff_text"]),
+                          "proposal_text": str(pending["proposal_text"]),
+                          "sample_count": int(pending["sample_count"]),
+                          "created_at": str(pending["created_at"]),
+                      }
+                      if pending
+                      else None
                 ),
                 "latest": (
                     {
@@ -470,11 +478,13 @@ class XAgentService:
                         "reviewed_at": str(latest["reviewed_at"] or ""),
                         "sample_count": int(latest["sample_count"]),
                     }
-                    if latest
-                    else None
-                ),
-                "new_examples": db.count_voice_learning_events_since(conn, reviewed_until),
-            }
+                      if latest
+                      else None
+                  ),
+                  "new_examples": db.count_voice_learning_events_since(conn, reviewed_until),
+                  "current_voice_path": self._display_profile_path(voice_path),
+                  "current_voice_text": current_voice_text,
+              }
 
     def reset_state(self, clear_telegram: bool = True) -> dict[str, int]:
         cleared_messages = 0
@@ -1155,13 +1165,25 @@ class XAgentService:
         )
 
     def _voice_file_path(self) -> Path:
-        return self.config.root / "profiles" / "default" / "Voice.md"
+        return self._profile_file_path("Voice.md")
 
     def _whoami_file_path(self) -> Path:
-        return self.config.root / "profiles" / "default" / "WhoAmI.md"
+        return self._profile_file_path("WhoAmI.md")
 
     def _humanizer_file_path(self) -> Path:
-        return self.config.root / "profiles" / "default" / "Humanizer.md"
+        return self._profile_file_path("Humanizer.md")
+
+    def _profile_file_path(self, filename: str) -> Path:
+        local_path = self.config.root / "profiles" / "local" / filename
+        if local_path.exists():
+            return local_path
+        return self.config.root / "profiles" / "default" / filename
+
+    def _display_profile_path(self, path: Path) -> str:
+        try:
+            return str(path.relative_to(self.config.root)).replace("\\", "/")
+        except ValueError:
+            return str(path)
 
     def _preserve_voice_guardrails(self, current_voice: str, proposed_voice: str) -> str:
         marker = "## Active Guardrails"

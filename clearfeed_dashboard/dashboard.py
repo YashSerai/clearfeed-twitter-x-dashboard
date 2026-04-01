@@ -857,6 +857,37 @@ def _render_dashboard(
       line-height: 1.55;
       margin-top: 14px;
     }}
+    .voice-compare {{
+      display:grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap:12px;
+      margin-top: 18px;
+    }}
+    .voice-compare-panel {{
+      min-width:0;
+      border:1px solid rgba(255,255,255,.08);
+      border-radius:16px;
+      background: rgba(8,14,21,.4);
+      padding:14px 16px;
+      display:grid;
+      gap:10px;
+    }}
+    .voice-compare-label {{
+      color: var(--muted);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+    }}
+    .voice-compare-path {{
+      color: var(--accent);
+      font-size: 12px;
+      word-break: break-word;
+    }}
+    .voice-compare pre {{
+      margin:0;
+      max-height: 420px;
+      overflow:auto;
+    }}
     .voice-diff details {{
       margin-top: 18px;
       border: 1px solid rgba(255,255,255,.08);
@@ -1287,6 +1318,7 @@ def _render_dashboard(
       .voice-review-top {{ grid-template-columns: 1fr; }}
       .voice-review-actions {{ justify-content: flex-start; }}
       .voice-review-meta {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
+      .voice-compare {{ grid-template-columns: 1fr; }}
     }}
     @media (max-width: 720px) {{
       .wrap {{ padding: 16px; }}
@@ -1986,6 +2018,23 @@ def _overview_stat_card(label: str, value: str, detail: str) -> str:
     )
 
 
+def _voice_compare_html(current_text: str, proposal_text: str, current_label: str) -> str:
+    return (
+        '<div class="voice-compare">'
+        '<section class="voice-compare-panel">'
+        '<div class="voice-compare-label">Current Voice</div>'
+        f'<div class="voice-compare-path">{_escape(current_label)}</div>'
+        f'<pre>{_escape(current_text.strip() or "No current voice text found.")}</pre>'
+        '</section>'
+        '<section class="voice-compare-panel">'
+        '<div class="voice-compare-label">Proposed Update</div>'
+        '<div class="voice-compare-path">Review before applying</div>'
+        f'<pre>{_escape(proposal_text.strip() or "No proposed voice text found.")}</pre>'
+        '</section>'
+        '</div>'
+    )
+
+
 def _fmt_cadence_range(min_minutes: int, max_minutes: int) -> str:
     if min_minutes == max_minutes:
         return f"{min_minutes} min"
@@ -2072,10 +2121,15 @@ def _voice_review_card(voice_review: dict[str, Any], drafting_enabled: bool) -> 
     diff_html = (
         '<div class="voice-diff">'
         '<details>'
-        '<summary>Preview changes</summary>'
+        '<summary>Raw diff</summary>'
         f'<pre>{_escape(str(pending.get("diff_text") or ""))}</pre>'
         "</details>"
         "</div>"
+    )
+    compare_html = _voice_compare_html(
+        str(voice_review.get("current_voice_text") or ""),
+        str(pending.get("proposal_text") or ""),
+        str(voice_review.get("current_voice_path") or "profiles/local/Voice.md"),
     )
     return (
         '<div class="voice-review-card">'
@@ -2096,6 +2150,7 @@ def _voice_review_card(voice_review: dict[str, Any], drafting_enabled: bool) -> 
         '<span>Created at</span>'
         "</span>"
         "</div>"
+        f"{compare_html}"
         f"{diff_html}"
         "</div>"
     )
@@ -2186,6 +2241,11 @@ def _archive_voice_card(archive_voice: dict[str, Any], drafting_enabled: bool) -
 
     approve_button = _post_button("/archive", "action", "approve", "proposal_id", str(pending["id"]), "Apply Archive Voice", "ok", "Applying archive voice...")
     reject_button = _post_button("/archive", "action", "reject", "proposal_id", str(pending["id"]), "Reject Proposal", "bad", "Rejecting proposal...")
+    compare_html = _voice_compare_html(
+        str(archive_voice.get("current_voice_text") or ""),
+        str(pending.get("proposal_text") or ""),
+        str(archive_voice.get("current_voice_path") or "profiles/local/Voice.md"),
+    )
     return (
         '<div class="voice-review-card">'
         '<div class="voice-review-top">'
@@ -2203,7 +2263,8 @@ def _archive_voice_card(archive_voice: dict[str, Any], drafting_enabled: bool) -
         '<span>Archive items used</span>'
         "</span>"
         "</div>"
-        f'<div class="voice-diff"><details><summary>View archive proposal diff</summary><pre>{_escape(str(pending.get("diff_text") or ""))}</pre></details></div>'
+        f"{compare_html}"
+        f'<div class="voice-diff"><details><summary>Raw diff</summary><pre>{_escape(str(pending.get("diff_text") or ""))}</pre></details></div>'
         "</div>"
     )
 

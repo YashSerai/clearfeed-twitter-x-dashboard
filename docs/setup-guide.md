@@ -50,8 +50,8 @@ Even so, back up one-time secrets before rerunning setup. Some providers only sh
 
 Then:
 1. Fill in `.env`.
-2. Build `profiles/default/WhoAmI.md`.
-3. Build `profiles/default/Voice.md`.
+2. Build `profiles/local/WhoAmI.md`.
+3. Build `profiles/local/Voice.md`.
 4. Add your feed URLs and weights in `.env` or `data/sources/x_sources.yaml`.
 5. Optionally set `HOME_TIMELINE_ENABLED=true`.
 6. Save a logged-in X session:
@@ -173,9 +173,9 @@ Examples of OpenAI-compatible targets:
 
 ## Voice Setup
 This repo uses three local files as the voice packet:
-- `profiles/default/WhoAmI.md`
-- `profiles/default/Voice.md`
-- `profiles/default/Humanizer.md`
+- `profiles/local/WhoAmI.md`
+- `profiles/local/Voice.md`
+- `profiles/local/Humanizer.md`
 
 `WhoAmI.md` and `Voice.md` include a fixed `## Active Guardrails` block at the bottom. Fill the editable sections above that block, but leave the guardrails unchanged unless you are intentionally changing how the system composes identity, voice, and humanizer context.
 
@@ -196,8 +196,8 @@ Use these files:
 - `profiles/templates/Build-Final-Profile-Prompt.md`
 
 Answer the questionnaires yourself, then paste those answers into the build prompt and ask an AI agent to generate the final contents for:
-- `profiles/default/WhoAmI.md`
-- `profiles/default/Voice.md`
+- `profiles/local/WhoAmI.md`
+- `profiles/local/Voice.md`
 
 If you have an X archive, you can still use it as reference material while answering the voice questionnaire. You can also import it directly into Clearfeed and let the app generate an archive-derived summary plus a proposed `Voice.md`.
 
@@ -234,7 +234,7 @@ Clearfeed keeps `WhoAmI.md` separate and does not rewrite `Humanizer.md`.
 - Telegram credentials configured: Telegram can mirror approvals, but the dashboard remains the default workflow.
 
 ## Voice Evolution
-This repo includes a local feedback loop for improving `profiles/default/Voice.md` over time.
+This repo includes a local feedback loop for improving `profiles/local/Voice.md` over time.
 
 What it uses:
 - approved drafts
@@ -258,7 +258,7 @@ Important rules:
 - edits made inside the dashboard are the highest-signal feedback, so prefer editing there before you approve a post
 
 ## Troubleshooting
-- `Missing required profile file(s)`: run `.\scripts\setup.ps1` and fill the files in `profiles/default/`.
+- `Missing required profile file(s)`: run `.\scripts\setup.ps1` and fill the files in `profiles/local/`.
 - `Missing Playwright session state`: run `.\scripts\capture-x-session.ps1` after logging into X.
 - Want to avoid X login issues in Playwright: use the default `.\scripts\capture-x-session.ps1` flow, which captures from a real Chrome or Edge session over CDP.
 - Want to try the old managed-browser path anyway: run `.\scripts\capture-x-session.ps1 -UseManagedBrowser`.

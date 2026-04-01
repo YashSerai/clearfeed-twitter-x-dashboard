@@ -7,3 +7,6 @@ data/browser/
 data/generated/
 data/runtime/
 data/*.sqlite3
+profiles/local/
+profiles/generated/
+profiles/history/
