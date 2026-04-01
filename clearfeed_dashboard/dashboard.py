@@ -991,7 +991,7 @@ def _render_dashboard(
     .draft-cell {{ min-width: 340px; }}
     .draft-form {{ display: grid; gap: 8px; }}
     .draft-editor {{
-      min-height: 68px;
+      min-height: 172px;
       resize: vertical;
       overflow-y: hidden;
     }}
@@ -2689,7 +2689,7 @@ def _draft_text_editor(draft_id: int, draft_text: str, status: str, draft_text_l
     if status != "drafted":
         return (
             '<div class="draft-form">'
-            f'<textarea id="{editor_id}" class="draft-editor" data-draft-editor{limit_attr} readonly>{_escape(draft_text)}</textarea>'
+            f'<textarea id="{editor_id}" class="draft-editor" rows="8" data-draft-editor{limit_attr} readonly>{_escape(draft_text)}</textarea>'
             '<div class="draft-meta">'
             '<span>Read only</span>'
             f'<span data-char-count-for="{editor_id}">{counter_text}</span>'
@@ -2701,7 +2701,7 @@ def _draft_text_editor(draft_id: int, draft_text: str, status: str, draft_text_l
         f'<form method="post" action="/draft" class="draft-form" data-draft-form>'
         f'<input type="hidden" name="draft_id" value="{draft_id}">'
         '<input type="hidden" name="action" value="save_text">'
-        f'<textarea id="{editor_id}" name="draft_text" class="draft-editor" data-draft-editor{limit_attr}{maxlength_attr}>{_escape(draft_text)}</textarea>'
+        f'<textarea id="{editor_id}" name="draft_text" class="draft-editor" rows="8" data-draft-editor{limit_attr}{maxlength_attr}>{_escape(draft_text)}</textarea>'
         '<div class="draft-meta">'
         f'<span data-char-count-for="{editor_id}">{counter_text}</span>'
         '<button type="submit" data-busy-label="Saving draft...">Save For Later</button>'
