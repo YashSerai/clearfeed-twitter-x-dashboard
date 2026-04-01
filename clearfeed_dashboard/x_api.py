@@ -34,7 +34,7 @@ class XAPI:
         if media_ids:
             payload["media"] = {"media_ids": media_ids}
         response = requests.post("https://api.x.com/2/tweets", auth=self.auth, json=payload, timeout=30)
-        response.raise_for_status()
+        self._raise_for_status(response)
         return response.json()
 
     def upload_image(self, image_path: Path) -> str:
@@ -45,9 +45,19 @@ class XAPI:
                 files={"media": handle},
                 timeout=60,
             )
-        response.raise_for_status()
+        self._raise_for_status(response)
         payload = response.json()
         media_id = payload.get("media_id_string")
         if not media_id:
             raise RuntimeError(f"Upload failed: {payload}")
         return media_id
+
+    def _raise_for_status(self, response: requests.Response) -> None:
+        try:
+            response.raise_for_status()
+        except requests.HTTPError as exc:
+            body = response.text.strip()
+            detail = f"{response.status_code} {response.reason}"
+            if body:
+                detail = f"{detail} | {body}"
+            raise RuntimeError(f"X API request failed: {detail}") from exc

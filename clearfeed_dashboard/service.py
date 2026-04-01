@@ -968,16 +968,28 @@ class XAgentService:
                 self.telegram.send_message(f"Draft #{draft_id} approved for local posting.")
             return {"status": "approved_local", "tweet_id": ""}
 
-        media_ids = None
-        if draft["image_path"]:
-            media_ids = [self.x_api.upload_image(Path(draft["image_path"]))]
+        try:
+            media_ids = None
+            if draft["image_path"]:
+                media_ids = [self.x_api.upload_image(Path(draft["image_path"]))]
 
-        if draft["draft_type"] == "reply":
-            response = self.x_api.create_tweet(draft["draft_text"], reply_to_tweet_id=draft["tweet_id"], media_ids=media_ids)
-        elif draft["draft_type"] == "quote_reply":
-            response = self.x_api.create_tweet(draft["draft_text"], quote_tweet_id=draft["tweet_id"], media_ids=media_ids)
-        else:
-            response = self.x_api.create_tweet(draft["draft_text"], media_ids=media_ids)
+            if draft["draft_type"] == "reply":
+                response = self.x_api.create_tweet(
+                    draft["draft_text"],
+                    reply_to_tweet_id=draft["tweet_id"],
+                    media_ids=media_ids,
+                )
+            elif draft["draft_type"] == "quote_reply":
+                response = self.x_api.create_tweet(
+                    draft["draft_text"],
+                    quote_tweet_id=draft["tweet_id"],
+                    media_ids=media_ids,
+                )
+            else:
+                response = self.x_api.create_tweet(draft["draft_text"], media_ids=media_ids)
+        except Exception as exc:
+            db.record_event(conn, "draft", draft_id, "post_failed", {"via": source_channel, "error": str(exc)})
+            raise RuntimeError(f"Posting failed for draft #{draft_id}: {exc}") from exc
 
         tweet_id = response["data"]["id"]
         db.mark_draft_status(conn, draft_id, "posted", posted_tweet_id=tweet_id)
