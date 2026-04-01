@@ -204,6 +204,22 @@ def load_config(root: str | Path | None = None) -> AppConfig:
     worker_cfg = dict(cfg["worker"])
     worker_cfg["min_delay_minutes"] = _get_int("WORKER_MIN_DELAY_MINUTES", int(worker_cfg["min_delay_minutes"]))
     worker_cfg["max_delay_minutes"] = _get_int("WORKER_MAX_DELAY_MINUTES", int(worker_cfg["max_delay_minutes"]))
+    worker_cfg["max_candidates_per_cycle"] = _get_int(
+        "WORKER_MAX_CANDIDATES_PER_CYCLE",
+        int(worker_cfg["max_candidates_per_cycle"]),
+    )
+    worker_cfg["homepage_scrape_limit"] = _get_int(
+        "WORKER_HOMEPAGE_SCRAPE_LIMIT",
+        int(worker_cfg["homepage_scrape_limit"]),
+    )
+    worker_cfg["homepage_llm_pool_size"] = _get_int(
+        "WORKER_HOMEPAGE_LLM_POOL_SIZE",
+        int(worker_cfg["homepage_llm_pool_size"]),
+    )
+    worker_cfg["homepage_max_alerts_per_cycle"] = _get_int(
+        "WORKER_HOMEPAGE_MAX_ALERTS_PER_CYCLE",
+        int(worker_cfg["homepage_max_alerts_per_cycle"]),
+    )
     if int(worker_cfg["max_delay_minutes"]) < int(worker_cfg["min_delay_minutes"]):
         raise RuntimeError("WORKER_MAX_DELAY_MINUTES must be greater than or equal to WORKER_MIN_DELAY_MINUTES.")
 
