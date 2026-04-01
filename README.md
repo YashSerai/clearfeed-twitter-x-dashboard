@@ -34,19 +34,7 @@ The point is simple: tighter inputs, better drafting, and a workflow where the h
 - Optional Telegram mirroring.
 
 ## Dashboard Preview
-Add a sanitized hero screenshot at `docs/assets/dashboard-screenshot.png`.
-
-Recommended content:
-- main dashboard overview
-- ranked feed / queue visible
-- setup status visible
-- no private account data or credentials
-
-When you add it, use:
-
-```md
 ![Clearfeed Dashboard](docs/assets/dashboard-screenshot.png)
-```
 
 ## What Clearfeed Helps With
 - Keeping up with your niche without sitting in the home feed for hours.
