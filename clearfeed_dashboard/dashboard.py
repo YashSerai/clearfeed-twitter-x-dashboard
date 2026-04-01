@@ -2829,12 +2829,7 @@ if ($task -and $info) {{
 
 
 def _command_snippets(root: Path) -> list[tuple[str, str]]:
-    root_str = str(root)
     return [
-        (
-            "Project Root",
-            f'Set-Location "{root_str}"',
-        ),
         (
             "Read Worker Runtime",
             r'Get-Content .\data\runtime\worker_status.json',
