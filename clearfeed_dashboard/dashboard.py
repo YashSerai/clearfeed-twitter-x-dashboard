@@ -1511,7 +1511,7 @@ def _render_dashboard(
         <div class="queue-header">
             <div>
               <h2>Reply Queue</h2>
-              <div class="section-note">Work through one candidate at a time. Each tweet keeps its draft, edit box, and manual workflow actions attached so you can review without losing context. Edit drafts here before you save or mark them manual if you want Adaptive Voice to learn from your changes. {'' if drafting_enabled else 'Draft generation is disabled until the selected AI provider is configured.'}</div>
+              <div class="section-note">Work through one candidate at a time. Each tweet keeps its draft, edit box, and follow-up actions attached so you can review without losing context. Edit drafts here before you save or mark them posted if you want Adaptive Voice to learn from your changes. {'' if drafting_enabled else 'Draft generation is disabled until the selected AI provider is configured.'}</div>
             </div>
             <div class="queue-toolbar">
               <span class="queue-counter" data-queue-counter>{len(queue_candidates)} in queue</span>
@@ -2242,7 +2242,7 @@ def _voice_review_card(voice_review: dict[str, Any], drafting_enabled: bool) -> 
             "</div>"
             f'<div class="voice-review-actions">{run_button}</div>'
             "</div>"
-            '<div class="voice-review-empty">Best results come from editing drafts here before you save them or mark them manual. Those edits give Adaptive Voice something concrete to learn from.</div>'
+            '<div class="voice-review-empty">Best results come from editing drafts here before you save them or mark them posted. Those edits give Adaptive Voice something concrete to learn from.</div>'
             f'<div class="voice-review-meta">{meta_html}</div>'
             "</div>"
         )
@@ -2624,7 +2624,7 @@ def _draft_action_buttons(
     controls = ['<div class="draft-inline-actions">']
     controls.append(_copy_button(draft_id, "Copy Draft"))
     controls.append(
-        _post_button("/draft", "draft_id", draft_id, "action", "manual", "Mark Manual", "ok", "Marking manual...")
+        _post_button("/draft", "draft_id", draft_id, "action", "manual", "Mark Posted", "ok", "Marking posted...")
     )
     controls.append(_post_button("/draft", "draft_id", draft_id, "action", "reject", "Reject", "bad", "Rejecting draft..."))
     if image_prompt and not image_path:
@@ -2730,7 +2730,7 @@ def _status_label(status: Any) -> str:
         "alerted": "Queued",
         "watched": "Watched",
         "drafted": "Draft Ready",
-        "manual_posted": "Marked Manual",
+        "manual_posted": "Marked Posted",
         "rejected": "Rejected",
         "ignored": "Dismissed",
         "approved_local": "Handled",

@@ -119,7 +119,7 @@ class XAgentService:
 
             if action in {"approve", "manual"}:
                 self._mark_draft_manual(conn, draft_id, source_channel="dashboard")
-                return {"message": f"Draft #{draft_id} marked for manual posting."}
+                return {"message": f"Draft #{draft_id} marked as posted."}
             if action == "reject":
                 db.mark_draft_status(conn, draft_id, "rejected")
                 db.record_event(conn, "draft", draft_id, "reject", {"via": "dashboard"})
@@ -952,7 +952,7 @@ class XAgentService:
         db.record_voice_learning_event(conn, draft_id, "manual_posted", source_channel)
         if notify_telegram and self.config.telegram_enabled:
             self.telegram.send_message(
-                f"Draft #{draft_id} marked for manual posting."
+                f"Draft #{draft_id} marked as posted."
             )
         return {"status": "manual_posted", "tweet_id": ""}
 
@@ -1066,7 +1066,7 @@ class XAgentService:
         )
 
     def _draft_keyboard(self, draft_id: int, has_image_prompt: bool) -> dict[str, Any]:
-        rows: list[list[tuple[str, str]]] = [[("Copy Draft", f"d:cp:{draft_id}"), ("Mark Manual", f"d:mp:{draft_id}")]]
+        rows: list[list[tuple[str, str]]] = [[("Copy Draft", f"d:cp:{draft_id}"), ("Mark Posted", f"d:mp:{draft_id}")]]
         rows.append([("Reject", f"d:rj:{draft_id}")])
         if has_image_prompt and self.config.image_generation_enabled:
             rows.append([("Generate Image", f"d:im:{draft_id}")])

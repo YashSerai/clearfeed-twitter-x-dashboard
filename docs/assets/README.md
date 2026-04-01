@@ -8,7 +8,7 @@ Recommended files:
   Good content: overview row, setup status, queue, and voice review section.
 - `clearfeed-workflow.gif`
   Use a 5-10 second GIF showing:
-  open candidate -> draft reply -> edit draft -> copy draft -> mark manual.
+open candidate -> draft reply -> edit draft -> copy draft -> mark posted.
 - `social-preview.png`
   Optional GitHub social preview image for the repo page.
   Recommended size: 1280x640.
