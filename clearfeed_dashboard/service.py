@@ -28,7 +28,7 @@ from .x_api import XAPI
 
 
 class XAgentService:
-    dashboard_draft_text_limit = 400
+    dashboard_draft_text_limit = 0
 
     def __init__(self, config: AppConfig | None = None):
         self.config = config or load_config()
@@ -1101,7 +1101,7 @@ class XAgentService:
             if required:
                 raise RuntimeError("Draft text cannot be empty.")
             return None
-        if len(normalized) > self.dashboard_draft_text_limit:
+        if self.dashboard_draft_text_limit and len(normalized) > self.dashboard_draft_text_limit:
             raise RuntimeError(
                 f"Draft text must be {self.dashboard_draft_text_limit} characters or fewer."
             )
