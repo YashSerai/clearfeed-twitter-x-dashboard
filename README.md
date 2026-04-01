@@ -114,6 +114,8 @@ Then:
 .\scripts\run-dashboard.ps1
 ```
 
+Then open [http://127.0.0.1:8787/](http://127.0.0.1:8787/).
+
 9. In a second terminal, start the worker:
 
 ```powershell
@@ -129,6 +131,8 @@ Then:
 .\scripts\stop_all_services.ps1
 .\scripts\import-x-archive.ps1 -ArchiveDir "C:\path\to\unzipped\twitter-archive"
 ```
+
+The dashboard runs locally at [http://127.0.0.1:8787/](http://127.0.0.1:8787/).
 
 ## Detailed Setup
 The full setup guide lives in [docs/setup-guide.md](docs/setup-guide.md). It covers:
