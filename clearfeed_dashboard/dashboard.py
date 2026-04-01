@@ -549,7 +549,7 @@ def _render_dashboard(
     ul.stats {{ list-style:none; padding:0; margin:0; }}
     ul.stats li {{ display:flex; justify-content:space-between; padding:10px 0; border-bottom:1px solid rgba(255,255,255,.06); }}
     ul.stats li:last-child {{ border-bottom:none; }}
-    .setup-grid {{ display:grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap:10px; }}
+    .setup-grid {{ display:grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap:10px; }}
     .setup-item {{
       min-width: 0;
       padding:12px 12px 10px;
@@ -1393,7 +1393,7 @@ def _render_dashboard(
     @media (max-width: 1100px) {{
       .span-4, .span-5, .span-6, .span-7, .span-8 {{ grid-column: span 12; }}
       .overview-grid {{ grid-template-columns: repeat(3, minmax(0, 1fr)); }}
-      .setup-grid {{ grid-template-columns: repeat(3, minmax(0, 1fr)); }}
+      .setup-grid {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
       .dev-split {{ grid-template-columns: 1fr; }}
       .queue-layout,
       .queue-card,
@@ -1412,7 +1412,7 @@ def _render_dashboard(
       .hero {{ padding: 20px; border-radius: 20px; flex-direction: column; align-items: flex-start; }}
       .hero h1 {{ font-size: 28px; }}
       .overview-grid {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
-      .setup-grid {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
+      .setup-grid {{ grid-template-columns: 1fr; }}
       .tweet-body {{ font-size: 16px; }}
       .tweet-head {{ flex-direction: column; align-items: flex-start; }}
       .queue-shell {{ padding: 16px; }}

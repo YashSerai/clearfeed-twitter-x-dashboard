@@ -124,7 +124,7 @@ class AppConfig:
 
     def setup_status(self) -> dict[str, dict[str, str | bool]]:
         provider_detail = (
-            "Provider configured."
+            f"{self.provider_label} provider configured."
             if self.provider_config_ready
             else (
                 "Set OpenAI-compatible base URL and models."
@@ -132,12 +132,21 @@ class AppConfig:
                 else "Add Google project, credentials, and models."
             )
         )
+        drafting_detail = (
+            f"Text: {self.ai_text_model} | Polish: {self.ai_polish_model}"
+            if self.provider_config_ready
+            else "Add text and polish models for drafting."
+        )
         return {
-            "provider": {"ok": True, "label": "AI Provider", "detail": self.provider_label},
-            "provider_config": {
+            "provider": {
                 "ok": self.provider_config_ready,
-                "label": "Provider Setup",
+                "label": "AI Provider",
                 "detail": provider_detail,
+            },
+            "drafting": {
+                "ok": self.provider_config_ready,
+                "label": "Drafting Models",
+                "detail": drafting_detail,
             },
             "profiles": {"ok": True, "label": "Voice Profiles", "detail": "Templates ready."},
             "vision": {
