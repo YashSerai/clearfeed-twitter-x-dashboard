@@ -75,11 +75,7 @@ class XAgentService:
                     notify_telegram=notify_telegram,
                     user_guidance=draft_guidance,
                 )
-                return {
-                    "message": f"Drafted reply #{draft_id}.",
-                    "focus_draft_id": draft_id,
-                    "anchor": f"draft-{draft_id}",
-                }
+                return {"message": f"Drafted reply #{draft_id}."}
             if action == "draft_quote":
                 self._ensure_drafting_enabled()
                 draft_id = self._generate_candidate_draft(
@@ -89,11 +85,7 @@ class XAgentService:
                     notify_telegram=notify_telegram,
                     user_guidance=draft_guidance,
                 )
-                return {
-                    "message": f"Drafted quote reply #{draft_id}.",
-                    "focus_draft_id": draft_id,
-                    "anchor": f"draft-{draft_id}",
-                }
+                return {"message": f"Drafted quote reply #{draft_id}."}
             if action == "watch":
                 db.set_candidate_status(conn, candidate_id, "watched")
                 db.record_event(conn, "candidate", candidate_id, "watch", {"via": "dashboard"})

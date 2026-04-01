@@ -5,6 +5,7 @@ import os
 import sqlite3
 import subprocess
 import sys
+import hashlib
 from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -30,6 +31,23 @@ def run_dashboard(host: str = "127.0.0.1", port: int = 8787) -> None:
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self) -> None:  # noqa: N802
             parsed = urlparse(self.path)
+            if parsed.path == "/queue-fragment":
+                snapshot = _queue_snapshot(
+                    database_path,
+                    draft_text_limit,
+                    posting_enabled=service.config.posting_enabled,
+                    drafting_enabled=service.config.drafting_enabled,
+                    image_generation_enabled=bool(service.config.setup_status().get("image_generation", {}).get("ok", False)),
+                )
+                body = json.dumps(snapshot).encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
+
             if parsed.path not in {"/", "/index.html"}:
                 self.send_response(404)
                 self.end_headers()
@@ -208,34 +226,11 @@ def _query_rows(database_path: Path, sql: str, params: tuple[Any, ...] = ()) -> 
 
 
 def _redirect_params(result: dict[str, Any]) -> dict[str, str]:
-    params: dict[str, str] = {}
-    if result.get("focus_draft_id") is not None:
-        params["focus_draft"] = str(result["focus_draft_id"])
-    return params
+    return {}
 
 
-def _render_dashboard(
-    root: Path,
-    database_path: Path,
-    status: dict[str, Any],
-    draft_text_limit: int,
-    setup_status: dict[str, dict[str, str | bool]],
-    archive_voice: dict[str, Any],
-    voice_review: dict[str, Any],
-    drafting_enabled: bool,
-    worker_ready: bool,
-    posting_enabled: bool,
-    telegram_enabled: bool,
-    worker_min_delay_minutes: int,
-    worker_max_delay_minutes: int,
-    flash: str = "",
-    error: str = "",
-) -> str:
-    latest_runs = _query_rows(
-        database_path,
-        "select id, status, started_at, finished_at, notes from run_logs order by id desc limit 5",
-    )
-    queue_candidates = _query_rows(
+def _queue_candidates(database_path: Path) -> list[sqlite3.Row]:
+    return _query_rows(
         database_path,
         """
         select c.id, c.source_key, c.status, c.recommended_action, c.total_score, c.why,
@@ -271,6 +266,67 @@ def _render_dashboard(
         limit 20
         """,
     )
+
+
+def _queue_snapshot(
+    database_path: Path,
+    draft_text_limit: int,
+    posting_enabled: bool,
+    drafting_enabled: bool,
+    image_generation_enabled: bool,
+) -> dict[str, str | int]:
+    queue_candidates = _queue_candidates(database_path)
+    queue_cards_html = "".join(
+        _candidate_card(
+            row,
+            draft_text_limit,
+            posting_enabled,
+            drafting_enabled,
+            image_generation_enabled,
+        )
+        for row in queue_candidates
+    )
+    queue_nav_html = "".join(_queue_jump_button(row) for row in queue_candidates)
+    signature_parts = [
+        f"{row['id']}:{row['status']}:{row['draft_id'] or ''}:{row['draft_status'] or ''}:{row['draft_updated_at'] or ''}"
+        for row in queue_candidates
+    ]
+    version = hashlib.sha1("|".join(signature_parts).encode("utf-8")).hexdigest()
+    stage_html = (
+        queue_cards_html
+        or '<div class="queue-empty" data-queue-empty><div><h3>No tweets waiting for review</h3><p class="empty-note">Run a cycle or wait for the worker to surface fresh posts from your configured sources.</p></div></div>'
+    )
+    rail_html = queue_nav_html or '<p class="empty-note">No cards waiting.</p>'
+    return {
+        "count": len(queue_candidates),
+        "version": version,
+        "stage_html": stage_html,
+        "rail_html": rail_html,
+    }
+
+
+def _render_dashboard(
+    root: Path,
+    database_path: Path,
+    status: dict[str, Any],
+    draft_text_limit: int,
+    setup_status: dict[str, dict[str, str | bool]],
+    archive_voice: dict[str, Any],
+    voice_review: dict[str, Any],
+    drafting_enabled: bool,
+    worker_ready: bool,
+    posting_enabled: bool,
+    telegram_enabled: bool,
+    worker_min_delay_minutes: int,
+    worker_max_delay_minutes: int,
+    flash: str = "",
+    error: str = "",
+) -> str:
+    latest_runs = _query_rows(
+        database_path,
+        "select id, status, started_at, finished_at, notes from run_logs order by id desc limit 5",
+    )
+    queue_candidates = _queue_candidates(database_path)
     latest_original_drafts = _query_rows(
         database_path,
         """
@@ -327,17 +383,13 @@ def _render_dashboard(
         f"<tr><td>{row['id']}</td><td>{row['status']}</td><td>{_fmt_time(row['started_at'])}</td><td>{_fmt_time(row['finished_at'])}</td><td>{_escape(row['notes'] or '')}</td></tr>"
         for row in latest_runs
     )
-    queue_cards_html = "".join(
-        _candidate_card(
-            row,
-            draft_text_limit,
-            posting_enabled,
-            drafting_enabled,
-            bool(setup_status.get("image_generation", {}).get("ok", False)),
-        )
-        for row in queue_candidates
+    queue_snapshot = _queue_snapshot(
+        database_path,
+        draft_text_limit,
+        posting_enabled=posting_enabled,
+        drafting_enabled=drafting_enabled,
+        image_generation_enabled=bool(setup_status.get("image_generation", {}).get("ok", False)),
     )
-    queue_nav_html = "".join(_queue_jump_button(row) for row in queue_candidates)
     original_drafts_html = "".join(
         _original_draft_card(
             row,
@@ -1343,27 +1395,28 @@ def _render_dashboard(
       </section>
         <section class="card span-12 queue-shell" id="reply-queue">
         <div class="queue-header">
-          <div>
-            <h2>Reply Queue</h2>
+            <div>
+              <h2>Reply Queue</h2>
               <div class="section-note">Work through one candidate at a time. Each tweet keeps its draft, edit box, and approval actions attached so you can review without losing context. Edit drafts here before approving if you want Adaptive Voice to learn from your changes. {'Posting is live through the X API.' if posting_enabled else 'Posting creds are not configured, so approvals stay local and copy-ready.'} {'' if drafting_enabled else 'Draft generation is disabled until the selected AI provider is configured.'}</div>
+            </div>
+            <div class="queue-toolbar">
+              <span class="queue-counter" data-queue-counter>{len(queue_candidates)} in queue</span>
+              <button type="button" class="ghost-button" data-refresh-queue hidden>Refresh Queue</button>
+              <button type="button" data-queue-prev>Prev</button>
+              <button type="button" data-queue-next>Next</button>
+              <button type="button" class="ghost-button" data-restart-deck>Back to first</button>
+            </div>
           </div>
-          <div class="queue-toolbar">
-            <span class="queue-counter" data-queue-counter>{len(queue_candidates)} in queue</span>
-            <button type="button" data-queue-prev>Prev</button>
-            <button type="button" data-queue-next>Next</button>
-            <button type="button" class="ghost-button" data-restart-deck>Back to first</button>
+          <div class="queue-layout" data-queue-root data-queue-version="{queue_snapshot['version']}">
+            <div class="queue-stage">
+              {queue_snapshot['stage_html']}
+            </div>
+            <aside class="queue-rail">
+              <div class="queue-rail-label">Jump List</div>
+              {queue_snapshot['rail_html']}
+            </aside>
           </div>
-        </div>
-        <div class="queue-layout" data-queue-root>
-          <div class="queue-stage">
-            {queue_cards_html or '<div class="queue-empty" data-queue-empty><div><h3>No tweets waiting for review</h3><p class="empty-note">Run a cycle or wait for the worker to surface fresh posts from your configured sources.</p></div></div>'}
-          </div>
-          <aside class="queue-rail">
-            <div class="queue-rail-label">Jump List</div>
-            {queue_nav_html or '<p class="empty-note">No cards waiting.</p>'}
-          </aside>
-        </div>
-      </section>
+        </section>
       <section class="card span-12" id="latest-drafts">
         <h2>Original Drafts</h2>
         <div class="section-note">Standalone drafts created from the topic box stay here. Reply drafts stay inside the queue cards above.</div>
@@ -1453,22 +1506,20 @@ def _render_dashboard(
       }}
     }});
   }});
-  const url = new URL(window.location.href);
-  const focusDraft = url.searchParams.get('focus_draft');
-  if (!window.location.hash) {{
-    const savedScroll = window.sessionStorage.getItem(scrollKey);
-    if (savedScroll) {{
-      window.requestAnimationFrame(() => {{
-        window.scrollTo({{ top: Number(savedScroll), behavior: 'auto' }});
-      }});
+    const url = new URL(window.location.href);
+    if (!window.location.hash) {{
+      const savedScroll = window.sessionStorage.getItem(scrollKey);
+      if (savedScroll) {{
+        window.requestAnimationFrame(() => {{
+          window.scrollTo({{ top: Number(savedScroll), behavior: 'auto' }});
+        }});
+      }}
     }}
-  }}
-  if (url.searchParams.has('flash') || url.searchParams.has('error') || focusDraft) {{
-    url.searchParams.delete('flash');
-    url.searchParams.delete('error');
-    url.searchParams.delete('focus_draft');
-    window.history.replaceState({{}}, '', url.pathname + (url.search ? `?${{url.searchParams.toString()}}` : ''));
-  }}
+  if (url.searchParams.has('flash') || url.searchParams.has('error')) {{
+      url.searchParams.delete('flash');
+      url.searchParams.delete('error');
+      window.history.replaceState({{}}, '', url.pathname + (url.search ? `?${{url.searchParams.toString()}}` : ''));
+    }}
   window.addEventListener('pagehide', saveScroll);
   window.addEventListener('beforeunload', saveScroll);
   const busyOverlay = document.querySelector('[data-busy-overlay]');
@@ -1521,14 +1572,31 @@ def _render_dashboard(
       showBusy(busyLabel);
     }});
   }});
-  const queueRoot = document.querySelector('[data-queue-root]');
-  if (queueRoot) {{
+  const queueStateKey = `dashboard-queue:${{window.location.pathname}}`;
+  const queueRefreshButton = document.querySelector('[data-refresh-queue]');
+  let pendingQueueRefresh = false;
+
+  const hasDirtyDraftEditors = () => Array.from(document.querySelectorAll('[data-draft-editor]')).some((editor) => {{
+    return editor.dataset.dirty === 'true' || document.activeElement === editor;
+  }});
+
+  const setQueueRefreshPrompt = (visible) => {{
+    pendingQueueRefresh = visible;
+    if (queueRefreshButton) {{
+      queueRefreshButton.hidden = !visible;
+    }}
+  }};
+
+  const initializeQueue = () => {{
+    const queueRoot = document.querySelector('[data-queue-root]');
+    if (!queueRoot) {{
+      return null;
+    }}
     const queueCards = Array.from(document.querySelectorAll('[data-queue-card]'));
     const queueJumps = Array.from(document.querySelectorAll('[data-queue-jump]'));
     const queueRail = queueRoot.querySelector('.queue-rail');
     const queueEmpty = document.querySelector('[data-queue-empty]');
     const queueCounter = document.querySelector('[data-queue-counter]');
-    const queueStateKey = `dashboard-queue:${{window.location.pathname}}`;
     const defaultOrder = queueCards.map((_, index) => index);
     const idToIndex = new Map(queueCards.map((card, index) => [card.dataset.cardId, index]));
     const jumpById = new Map(queueJumps.map((button) => [button.dataset.jumpTo, button]));
@@ -1652,17 +1720,17 @@ def _render_dashboard(
       syncQueue();
     }};
     queueJumps.forEach((button) => {{
-      button.addEventListener('click', () => {{
+      button.onclick = () => {{
         activateCard(button.dataset.jumpTo);
         saveScroll();
         const card = document.getElementById(`candidate-${{button.dataset.jumpTo}}`);
         if (card) {{
           card.scrollIntoView({{ block: 'start', behavior: 'smooth' }});
         }}
-      }});
+      }};
     }});
     document.querySelectorAll('[data-skip-card]').forEach((button) => {{
-      button.addEventListener('click', () => {{
+      button.onclick = () => {{
         const card = button.closest('[data-queue-card]');
         if (!card) {{
           return;
@@ -1677,53 +1745,86 @@ def _render_dashboard(
           }}
         }}
         syncQueue();
-      }});
+      }};
     }});
     document.querySelectorAll('[data-queue-prev]').forEach((button) => {{
-      button.addEventListener('click', () => moveBy(-1));
+      button.onclick = () => moveBy(-1);
     }});
     document.querySelectorAll('[data-queue-next]').forEach((button) => {{
-      button.addEventListener('click', () => moveBy(1));
+      button.onclick = () => moveBy(1);
     }});
     const restartDeck = document.querySelector('[data-restart-deck]');
     if (restartDeck) {{
-      restartDeck.addEventListener('click', () => {{
+      restartDeck.onclick = () => {{
         queueOrder.sort((left, right) => left - right);
         activeIndex = 0;
         syncQueue();
-      }});
+      }};
     }}
-    let focusTarget = null;
-    if (focusDraft) {{
-      focusTarget = document.getElementById(`draft-${{focusDraft}}`);
+    syncQueue();
+    return {{
+      version: queueRoot.dataset.queueVersion || '',
+    }};
+  }};
+
+  const applyQueueSnapshot = (snapshot) => {{
+    const queueRoot = document.querySelector('[data-queue-root]');
+    if (!queueRoot) {{
+      return;
     }}
-    if (!focusTarget && window.location.hash) {{
-      focusTarget = document.getElementById(window.location.hash.slice(1));
+    queueRoot.dataset.queueVersion = snapshot.version || '';
+    const stage = queueRoot.querySelector('.queue-stage');
+    const rail = queueRoot.querySelector('.queue-rail');
+    if (stage) {{
+      stage.innerHTML = snapshot.stage_html || '';
     }}
-    if (focusTarget) {{
-      const containingCard = focusTarget.closest('[data-queue-card]');
-      if (containingCard) {{
-        activateCard(containingCard.dataset.cardId);
-        containingCard.classList.add('queue-card-focus');
-        window.setTimeout(() => containingCard.classList.remove('queue-card-focus'), 5000);
-      }} else {{
-        syncQueue();
+    if (rail) {{
+      rail.innerHTML = `<div class="queue-rail-label">Jump List</div>${{snapshot.rail_html || ''}}`;
+    }}
+    initializeQueue();
+    setQueueRefreshPrompt(false);
+  }};
+
+  const fetchQueueSnapshot = async () => {{
+    const response = await fetch('/queue-fragment', {{ cache: 'no-store' }});
+    if (!response.ok) {{
+      throw new Error(`Queue refresh failed with status ${{response.status}}`);
+    }}
+    return await response.json();
+  }};
+
+  const maybeRefreshQueue = async (force = false) => {{
+    const queueRoot = document.querySelector('[data-queue-root]');
+    if (!queueRoot) {{
+      return;
+    }}
+    const currentVersion = queueRoot.dataset.queueVersion || '';
+    const snapshot = await fetchQueueSnapshot();
+    if ((snapshot.version || '') === currentVersion) {{
+      if (force) {{
+        setQueueRefreshPrompt(false);
       }}
-      focusTarget.classList.add('draft-focus');
-      window.setTimeout(() => focusTarget.classList.remove('draft-focus'), 5000);
-      window.requestAnimationFrame(() => {{
-        focusTarget.scrollIntoView({{ block: 'start', behavior: 'smooth' }});
-      }});
-    }} else {{
-      syncQueue();
+      return;
     }}
-  }} else if (focusDraft) {{
-    const target = document.getElementById(`draft-${{focusDraft}}`);
-    if (target) {{
-      target.classList.add('draft-row-focus');
-      window.setTimeout(() => target.classList.remove('draft-row-focus'), 5000);
+    if (!force && hasDirtyDraftEditors()) {{
+      setQueueRefreshPrompt(true);
+      return;
     }}
+    applyQueueSnapshot(snapshot);
+  }};
+
+  initializeQueue();
+  if (queueRefreshButton) {{
+    queueRefreshButton.onclick = () => {{
+      maybeRefreshQueue(true).catch(() => {{}});
+    }};
   }}
+  window.setInterval(() => {{
+    if (document.visibilityState !== 'visible') {{
+      return;
+    }}
+    maybeRefreshQueue(false).catch(() => {{}});
+  }}, 7000);
   const el = document.getElementById('next-run-countdown');
   if (el) {{
     const raw = el.dataset.nextRun;
@@ -2093,7 +2194,7 @@ def _candidate_card(
     metrics = _metrics_text(row["raw_metrics"])
     draft_badge = ""
     if row["draft_id"]:
-        draft_badge = f'<span class="pill {_pill_class(row["draft_status"])}">draft #{row["draft_id"]} Â· {_escape(row["draft_status"])}</span>'
+        draft_badge = f'<span class="pill {_pill_class(row["draft_status"])}">draft #{row["draft_id"]} | {_escape(row["draft_status"])}</span>'
     draft_count = int(row["draft_count"] or 0)
     attempts = "No drafts yet" if draft_count == 0 else f"{draft_count} draft{'s' if draft_count != 1 else ''} on this tweet"
     tweet_text = _escape((row["text"] or "").strip() or "No text captured for this tweet.")
@@ -2213,7 +2314,7 @@ def _candidate_draft_panel(
     return (
         f'<section class="draft-inline" id="draft-{draft_id}">'
         '<div class="draft-inline-header">'
-        f'<div><h3>Latest Draft #{draft_id}</h3><div class="draft-inline-note">{" Â· ".join(note_bits)}</div></div>'
+        f'<div><h3>Latest Draft #{draft_id}</h3><div class="draft-inline-note">{" | ".join(note_bits)}</div></div>'
         f'<span class="pill {_pill_class(draft_status)}">{_escape(draft_status)}</span>'
         '</div>'
         f"{guidance_html}"
@@ -2251,7 +2352,7 @@ def _original_draft_card(
     return (
         f'<article class="original-card" id="draft-{row["id"]}">'
         '<div class="draft-inline-header">'
-        f'<div><h3>Original Draft #{row["id"]}</h3><div class="draft-inline-note">{" Â· ".join(note_bits)}</div></div>'
+        f'<div><h3>Original Draft #{row["id"]}</h3><div class="draft-inline-note">{" | ".join(note_bits)}</div></div>'
         f'<span class="pill {_pill_class(row["status"])}">{_escape(row["status"])}</span>'
         '</div>'
         f"{_draft_text_editor(int(row['id']), row['draft_text'] or '', str(row['status'] or ''), draft_text_limit)}"
