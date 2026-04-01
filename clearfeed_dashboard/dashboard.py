@@ -1532,6 +1532,13 @@ def _render_dashboard(
     busyOverlay.classList.add('is-visible');
     busyOverlay.setAttribute('aria-hidden', 'false');
   }};
+  const hideBusy = () => {{
+    if (!busyOverlay || !busyTitle) {{
+      return;
+    }}
+    busyOverlay.classList.remove('is-visible');
+    busyOverlay.setAttribute('aria-hidden', 'true');
+  }};
   const editors = Array.from(document.querySelectorAll('[data-draft-editor]'));
   const maxEditorHeight = 240;
   const syncEditor = (editor) => {{
@@ -1584,6 +1591,24 @@ def _render_dashboard(
     pendingQueueRefresh = visible;
     if (queueRefreshButton) {{
       queueRefreshButton.hidden = !visible;
+    }}
+  }};
+
+  const saveDraftInBackground = async (draftId, draftText) => {{
+    const body = new URLSearchParams();
+    body.set('draft_id', String(draftId));
+    body.set('action', 'save_text');
+    body.set('draft_text', draftText);
+    const response = await fetch('/draft', {{
+      method: 'POST',
+      headers: {{
+        'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+      }},
+      body: body.toString(),
+      credentials: 'same-origin',
+    }});
+    if (!response.ok) {{
+      throw new Error(`Draft save failed with status ${{response.status}}`);
     }}
   }};
 
@@ -1730,10 +1755,22 @@ def _render_dashboard(
       }};
     }});
     document.querySelectorAll('[data-skip-card]').forEach((button) => {{
-      button.onclick = () => {{
+      button.onclick = async () => {{
         const card = button.closest('[data-queue-card]');
         if (!card) {{
           return;
+        }}
+        const editor = card.querySelector('[data-draft-editor]');
+        const draftIdField = card.querySelector('input[name="draft_id"]');
+        if (editor && draftIdField && editor.dataset.dirty === 'true') {{
+          try {{
+            showBusy('Saving draft and skipping...');
+            await saveDraftInBackground(draftIdField.value, editor.value);
+            editor.dataset.dirty = 'false';
+          }} catch (_err) {{
+            hideBusy();
+            return;
+          }}
         }}
         if (queueOrder.length > 1) {{
           const currentCardIndex = queueCards.findIndex((item) => item === card);
@@ -1745,6 +1782,7 @@ def _render_dashboard(
           }}
         }}
         syncQueue();
+        hideBusy();
       }};
     }});
     document.querySelectorAll('[data-queue-prev]').forEach((button) => {{
@@ -2456,7 +2494,7 @@ def _draft_text_editor(draft_id: int, draft_text: str, status: str, draft_text_l
         f'<textarea id="{editor_id}" name="draft_text" class="draft-editor" data-draft-editor data-limit="{draft_text_limit}" maxlength="{draft_text_limit}">{_escape(draft_text)}</textarea>'
         '<div class="draft-meta">'
         f'<span data-char-count-for="{editor_id}">{len(draft_text)} / {draft_text_limit}</span>'
-        '<button type="submit" data-busy-label="Saving draft text...">Save Text</button>'
+        '<button type="submit" data-busy-label="Saving draft...">Save For Later</button>'
         "</div>"
         "</form>"
     )
