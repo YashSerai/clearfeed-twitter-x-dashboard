@@ -31,7 +31,7 @@ The point is simple: tighter inputs, better drafting, and a workflow where the h
 - AI-assisted profile setup with questionnaire templates and prompt packs.
 - Editable drafts so you can replace or steer the AI instead of accepting whatever it generated.
 - Copy-first manual posting workflow.
-- Optional Telegram mirroring.
+- Optional Telegram Mini App and alert mirroring.
 
 ## Dashboard Preview
 ![Clearfeed Dashboard](docs/assets/dashboard-screenshot.png)
@@ -121,6 +121,16 @@ Then open [http://127.0.0.1:8787/](http://127.0.0.1:8787/).
 ```powershell
 .\scripts\run-worker.ps1
 ```
+
+10. Optional: enable remote Telegram Mini App access.
+Set `PUBLIC_BASE_URL` in `.env` to an HTTPS tunnel URL that forwards to `http://127.0.0.1:8787`.
+For v1, use a single tunnel provider path such as Cloudflare Tunnel:
+
+```powershell
+cloudflared tunnel --url http://127.0.0.1:8787
+```
+
+Then restart the dashboard or worker so Telegram alerts and the bot menu button point at the Mini App.
 
 ## Common Commands
 ```powershell

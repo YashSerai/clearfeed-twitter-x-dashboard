@@ -13,6 +13,7 @@ import traceback
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlencode
 
 from . import db
 from .archive_voice import import_archive
@@ -23,7 +24,7 @@ from .llm import DraftingEngine
 from .scoring import age_minutes, human_age, metrics_summary, score_breakdown
 from .scraper import XScraper
 from .style import load_style_packet
-from .telegram_api import DisabledTelegramAPI, TelegramAPI, inline_keyboard
+from .telegram_api import DisabledTelegramAPI, TelegramAPI, callback_button, inline_keyboard, web_app_button
 
 
 class XAgentService:
@@ -54,6 +55,7 @@ class XAgentService:
     def bootstrap(self) -> None:
         with managed_connection(self.config.database_path) as conn:
             db.bootstrap(conn)
+        self._sync_telegram_menu_button()
 
     def candidate_action(
         self,
@@ -118,7 +120,12 @@ class XAgentService:
                 draft = db.get_draft(conn, draft_id)
 
             if action in {"approve", "manual"}:
-                self._mark_draft_manual(conn, draft_id, source_channel="dashboard")
+                self._mark_draft_manual(
+                    conn,
+                    draft_id,
+                    source_channel="dashboard",
+                    notify_telegram=notify_telegram,
+                )
                 return {"message": f"Draft #{draft_id} marked as posted."}
             if action == "reject":
                 db.mark_draft_status(conn, draft_id, "rejected")
@@ -771,6 +778,17 @@ class XAgentService:
         text = (message.get("text") or "").strip()
         if not text:
             return
+        if text.startswith("/start") or text.startswith("/app"):
+            if self.config.telegram_webapp_enabled:
+                self.telegram.send_message(
+                    "Open the Clearfeed Mini App to review the queue, draft replies, and finish posts.",
+                    reply_markup=inline_keyboard([[web_app_button("Open Clearfeed", self._telegram_webapp_url())]]),
+                )
+            else:
+                self.telegram.send_message(
+                    "Telegram alerts are enabled, but the Mini App is not ready yet. Set PUBLIC_BASE_URL to your HTTPS tunnel URL to enable it."
+                )
+            return
         if text.startswith("/status"):
             self.telegram.send_message(self._status_snapshot(conn))
             return
@@ -779,7 +797,7 @@ class XAgentService:
             self._generate_original_post_drafts(conn, topic)
             return
         self.telegram.send_message(
-            "Commands:\n/status\n/post optional-topic\n\nCandidate alerts will keep arriving automatically."
+            "Commands:\n/status\n/post optional-topic\n/app\n\nCandidate alerts will keep arriving automatically."
         )
 
     def _handle_callback(self, conn: sqlite3.Connection, callback: dict[str, Any]) -> None:
@@ -1058,6 +1076,13 @@ class XAgentService:
         return normalized
 
     def _candidate_keyboard(self, candidate_id: int) -> dict[str, Any]:
+        if self.config.telegram_webapp_enabled:
+            return inline_keyboard(
+                [
+                    [web_app_button("Open Candidate", self._telegram_webapp_url(candidate_id=candidate_id))],
+                    [callback_button("Watch", f"c:wt:{candidate_id}"), callback_button("Ignore", f"c:ig:{candidate_id}")],
+                ]
+            )
         return inline_keyboard(
             [
                 [("Draft Reply", f"c:dr:{candidate_id}"), ("Draft Quote", f"c:dq:{candidate_id}")],
@@ -1066,11 +1091,44 @@ class XAgentService:
         )
 
     def _draft_keyboard(self, draft_id: int, has_image_prompt: bool) -> dict[str, Any]:
+        if self.config.telegram_webapp_enabled:
+            rows: list[list[dict[str, Any]]] = [
+                [web_app_button("Open Draft", self._telegram_webapp_url(draft_id=draft_id))],
+                [callback_button("Copy Draft", f"d:cp:{draft_id}")],
+            ]
+            return inline_keyboard(rows)
         rows: list[list[tuple[str, str]]] = [[("Copy Draft", f"d:cp:{draft_id}"), ("Mark Posted", f"d:mp:{draft_id}")]]
         rows.append([("Reject", f"d:rj:{draft_id}")])
         if has_image_prompt and self.config.image_generation_enabled:
             rows.append([("Generate Image", f"d:im:{draft_id}")])
         return inline_keyboard(rows)
+
+    def _telegram_webapp_url(
+        self,
+        *,
+        candidate_id: int | None = None,
+        draft_id: int | None = None,
+        view: str | None = None,
+    ) -> str:
+        base_url = self.config.normalized_public_base_url or ""
+        query: dict[str, str] = {}
+        if candidate_id is not None:
+            query["candidate_id"] = str(candidate_id)
+        if draft_id is not None:
+            query["draft_id"] = str(draft_id)
+        if view:
+            query["view"] = view
+        if not query:
+            return f"{base_url}/mini"
+        return f"{base_url}/mini?{urlencode(query)}"
+
+    def _sync_telegram_menu_button(self) -> None:
+        if not self.config.telegram_webapp_enabled:
+            return
+        try:
+            self.telegram.set_chat_menu_button("Open Clearfeed", self._telegram_webapp_url())
+        except Exception as exc:
+            self.logger.warning("telegram webapp menu sync failed: %s", exc)
 
     def _render_candidate_alert(self, row: sqlite3.Row) -> str:
         excerpt = row["text"].strip()

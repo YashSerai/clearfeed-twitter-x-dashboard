@@ -75,6 +75,24 @@ class TelegramAPI:
             return True
         return False
 
+    def set_chat_menu_button(self, text: str, web_app_url: str, chat_id: str | None = None) -> dict[str, Any]:
+        payload = {
+            "menu_button": {
+                "type": "web_app",
+                "text": text,
+                "web_app": {"url": web_app_url},
+            }
+        }
+        if chat_id:
+            payload["chat_id"] = chat_id
+        response = requests.post(
+            f"{self.base_url}/setChatMenuButton",
+            json=payload,
+            timeout=30,
+        )
+        response.raise_for_status()
+        return response.json()
+
 
 class DisabledTelegramAPI:
     enabled = False
@@ -97,10 +115,29 @@ class DisabledTelegramAPI:
     def delete_message(self, message_id: int) -> bool:
         return False
 
+    def set_chat_menu_button(self, text: str, web_app_url: str, chat_id: str | None = None) -> dict[str, Any]:
+        return {"ok": False, "disabled": True}
 
-def inline_keyboard(rows: list[list[tuple[str, str]]]) -> dict[str, Any]:
+
+def callback_button(label: str, callback_data: str) -> dict[str, Any]:
+    return {"text": label, "callback_data": callback_data}
+
+
+def web_app_button(label: str, url: str) -> dict[str, Any]:
+    return {"text": label, "web_app": {"url": url}}
+
+
+def inline_keyboard(rows: list[list[dict[str, Any] | tuple[str, str]]]) -> dict[str, Any]:
+    normalized_rows: list[list[dict[str, Any]]] = []
+    for row in rows:
+        normalized_row: list[dict[str, Any]] = []
+        for item in row:
+            if isinstance(item, tuple):
+                label, callback_data = item
+                normalized_row.append(callback_button(label, callback_data))
+            else:
+                normalized_row.append(item)
+        normalized_rows.append(normalized_row)
     return {
-        "inline_keyboard": [
-            [{"text": label, "callback_data": callback_data} for label, callback_data in row] for row in rows
-        ]
+        "inline_keyboard": normalized_rows
     }

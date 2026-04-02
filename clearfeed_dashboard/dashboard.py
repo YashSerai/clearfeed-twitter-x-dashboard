@@ -14,6 +14,7 @@ from urllib.parse import parse_qs, quote_plus, urlparse
 
 from .config import load_config
 from .service import XAgentService
+from .telegram_webapp import TelegramWebAppAuthError, TelegramWebAppSession, validate_init_data
 
 CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 STARTUP_TASK_NAME = "ClearfeedWorker"
@@ -32,12 +33,32 @@ def run_dashboard(host: str = "127.0.0.1", port: int = 8787) -> None:
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self) -> None:  # noqa: N802
             parsed = urlparse(self.path)
+            if parsed.path == "/mini":
+                self._send_html(200, _render_mini_app())
+                return
+            if parsed.path in {"/api/mini/bootstrap", "/api/mini/queue"}:
+                try:
+                    self._require_mini_session()
+                    payload = _mini_bootstrap_payload(
+                        service,
+                        focus_candidate_id=_optional_int(parse_qs(parsed.query).get("candidate_id", [""])[0]),
+                        focus_draft_id=_optional_int(parse_qs(parsed.query).get("draft_id", [""])[0]),
+                        view=parse_qs(parsed.query).get("view", [""])[0],
+                    )
+                    self._send_json(200, payload)
+                except TelegramWebAppAuthError as exc:
+                    self._send_json(401, {"error": str(exc)})
+                except RuntimeError as exc:
+                    self._send_json(503, {"error": str(exc)})
+                except Exception as exc:
+                    self._send_json(500, {"error": str(exc)})
+                return
             if parsed.path == "/queue-fragment":
                 snapshot = _queue_snapshot(
                     database_path,
                     draft_text_limit,
                     drafting_enabled=service.config.drafting_enabled,
-                    image_generation_enabled=bool(service.config.setup_status().get("image_generation", {}).get("ok", False)),
+                    image_generation_enabled=service.config.image_generation_enabled,
                 )
                 body = json.dumps(snapshot).encode("utf-8")
                 self.send_response(200)
@@ -78,6 +99,7 @@ def run_dashboard(host: str = "127.0.0.1", port: int = 8787) -> None:
                 archive_voice=archive_voice,
                 voice_review=voice_review,
                 drafting_enabled=service.config.drafting_enabled,
+                image_generation_enabled=service.config.image_generation_enabled,
                 worker_ready=service.config.session_ready and service.config.sources_ready,
                 telegram_enabled=service.config.telegram_enabled,
                 worker_min_delay_minutes=service.config.worker.min_delay_minutes,
@@ -93,10 +115,33 @@ def run_dashboard(host: str = "127.0.0.1", port: int = 8787) -> None:
             self.wfile.write(body)
 
         def do_POST(self) -> None:  # noqa: N802
+            parsed = urlparse(self.path)
+            if parsed.path in {"/api/mini/candidate-action", "/api/mini/draft-action", "/api/mini/original"}:
+                try:
+                    self._require_mini_session()
+                    payload = self._json_payload()
+                    if parsed.path == "/api/mini/candidate-action":
+                        result = _mini_candidate_action(service, payload)
+                    elif parsed.path == "/api/mini/draft-action":
+                        result = _mini_draft_action(service, payload)
+                    else:
+                        result = _mini_original_action(service, payload)
+                    response_payload = _mini_bootstrap_payload(service)
+                    response_payload["message"] = result["message"]
+                    self._send_json(200, response_payload)
+                except TelegramWebAppAuthError as exc:
+                    self._send_json(401, {"error": str(exc)})
+                except RuntimeError as exc:
+                    self._send_json(400, {"error": str(exc)})
+                except (KeyError, ValueError, json.JSONDecodeError) as exc:
+                    self._send_json(400, {"error": str(exc)})
+                except Exception as exc:
+                    self._send_json(500, {"error": str(exc)})
+                return
+
             length = int(self.headers.get("Content-Length", "0"))
             raw = self.rfile.read(length).decode("utf-8")
             form = parse_qs(raw, keep_blank_values=True)
-            parsed = urlparse(self.path)
 
             try:
                 if parsed.path == "/candidate":
@@ -179,6 +224,39 @@ def run_dashboard(host: str = "127.0.0.1", port: int = 8787) -> None:
             except Exception as exc:
                 self._redirect(str(exc), error=True)
 
+        def _send_html(self, status_code: int, page: str) -> None:
+            body = page.encode("utf-8")
+            self.send_response(status_code)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def _send_json(self, status_code: int, payload: dict[str, Any]) -> None:
+            body = json.dumps(payload).encode("utf-8")
+            self.send_response(status_code)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def _json_payload(self) -> dict[str, Any]:
+            length = int(self.headers.get("Content-Length", "0"))
+            raw = self.rfile.read(length).decode("utf-8")
+            if not raw.strip():
+                return {}
+            payload = json.loads(raw)
+            if not isinstance(payload, dict):
+                raise ValueError("JSON body must be an object.")
+            return payload
+
+        def _require_mini_session(self) -> TelegramWebAppSession:
+            if not service.config.telegram_webapp_enabled:
+                raise RuntimeError("Telegram Mini App is not enabled. Set PUBLIC_BASE_URL and TELEGRAM_WEBAPP_ENABLED.")
+            init_data = self.headers.get("X-Telegram-Init-Data", "")
+            return validate_init_data(init_data, service.config.telegram_bot_token or "")
+
         def _redirect(
             self,
             message: str,
@@ -237,6 +315,630 @@ def _query_rows(database_path: Path, sql: str, params: tuple[Any, ...] = ()) -> 
 
 def _redirect_params(result: dict[str, Any]) -> dict[str, str]:
     return {}
+
+
+def _optional_int(value: Any) -> int | None:
+    if value is None:
+        return None
+    raw = str(value).strip()
+    if not raw:
+        return None
+    return int(raw)
+
+
+def _latest_original_drafts(database_path: Path) -> list[sqlite3.Row]:
+    return _query_rows(
+        database_path,
+        """
+        select d.id, d.draft_type, d.status, d.draft_text, d.updated_at, d.posted_tweet_id, d.image_prompt, d.image_path
+        from drafts d
+        where d.candidate_id is null
+        order by d.id desc
+        limit 12
+        """,
+    )
+
+
+def _serialize_mini_draft(
+    row: sqlite3.Row | dict[str, Any],
+    *,
+    draft_text_limit: int,
+    drafting_enabled: bool,
+    image_generation_enabled: bool,
+) -> dict[str, Any]:
+    status = str(row["status"] or "")
+    image_prompt = str(row["image_prompt"] or "").strip()
+    image_path = str(row["image_path"] or "").strip()
+    draft_text = str(row["draft_text"] or "")
+    return {
+        "id": int(row["id"]),
+        "draft_type": str(row["draft_type"] or ""),
+        "status": status,
+        "status_label": _status_label(status),
+        "draft_text": draft_text,
+        "updated_at": str(row["updated_at"] or ""),
+        "updated_label": _fmt_time(str(row["updated_at"] or "")),
+        "posted_tweet_id": str(row["posted_tweet_id"] or ""),
+        "image_prompt": image_prompt,
+        "image_path": image_path,
+        "has_image_prompt": bool(image_prompt),
+        "has_image_path": bool(image_path),
+        "can_generate_image": bool(
+            status == "drafted" and image_prompt and drafting_enabled and image_generation_enabled and not image_path
+        ),
+        "is_editable": status == "drafted",
+        "char_count": len(draft_text),
+        "draft_text_limit": draft_text_limit,
+    }
+
+
+def _serialize_mini_candidate(
+    row: sqlite3.Row,
+    *,
+    draft_text_limit: int,
+    drafting_enabled: bool,
+    image_generation_enabled: bool,
+) -> dict[str, Any]:
+    draft = None
+    if row["draft_id"]:
+        draft = _serialize_mini_draft(
+            {
+                "id": row["draft_id"],
+                "draft_type": row["draft_type"],
+                "status": row["draft_status"],
+                "draft_text": row["draft_text"],
+                "updated_at": row["draft_updated_at"],
+                "posted_tweet_id": row["draft_posted_tweet_id"],
+                "image_prompt": row["draft_image_prompt"],
+                "image_path": row["draft_image_path"],
+            },
+            draft_text_limit=draft_text_limit,
+            drafting_enabled=drafting_enabled,
+            image_generation_enabled=image_generation_enabled,
+        )
+        draft["generation_notes"] = str(row["draft_generation_notes"] or "")
+    return {
+        "id": int(row["id"]),
+        "source_key": str(row["source_key"] or ""),
+        "status": str(row["status"] or ""),
+        "status_label": _status_label(row["status"]),
+        "recommended_action": str(row["recommended_action"] or ""),
+        "why": str(row["why"] or ""),
+        "total_score": float(row["total_score"] or 0),
+        "author_handle": str(row["author_handle"] or ""),
+        "author_name": str(row["author_name"] or ""),
+        "text": str(row["text"] or ""),
+        "posted_at": str(row["posted_at"] or ""),
+        "age_label": _fmt_age(str(row["posted_at"] or "")),
+        "url": str(row["url"] or ""),
+        "metrics_label": _metrics_text(str(row["raw_metrics"] or "")),
+        "draft_generation_notes": str(row["draft_generation_notes"] or ""),
+        "draft_count": int(row["draft_count"] or 0),
+        "draft": draft,
+        "can_generate_draft": drafting_enabled,
+    }
+
+
+def _mini_bootstrap_payload(
+    service: XAgentService,
+    *,
+    focus_candidate_id: int | None = None,
+    focus_draft_id: int | None = None,
+    view: str | None = None,
+) -> dict[str, Any]:
+    image_generation_enabled = service.config.image_generation_enabled
+    queue = [
+        _serialize_mini_candidate(
+            row,
+            draft_text_limit=service.dashboard_draft_text_limit,
+            drafting_enabled=service.config.drafting_enabled,
+            image_generation_enabled=image_generation_enabled,
+        )
+        for row in _queue_candidates(service.config.database_path)
+    ]
+    original_drafts = [
+        _serialize_mini_draft(
+            row,
+            draft_text_limit=service.dashboard_draft_text_limit,
+            drafting_enabled=service.config.drafting_enabled,
+            image_generation_enabled=image_generation_enabled,
+        )
+        for row in _latest_original_drafts(service.config.database_path)
+    ]
+    status = _read_status(service.status_path, persisted_next_run_at=service._load_worker_next_run_at())
+    return {
+        "app": {
+            "draft_text_limit": service.dashboard_draft_text_limit,
+            "drafting_enabled": service.config.drafting_enabled,
+            "image_generation_enabled": image_generation_enabled,
+            "telegram_webapp_enabled": service.config.telegram_webapp_enabled,
+            "public_base_url": service.config.normalized_public_base_url,
+        },
+        "worker": _hero_status_snapshot(status),
+        "focus": {
+            "candidate_id": focus_candidate_id,
+            "draft_id": focus_draft_id,
+            "view": view or "",
+        },
+        "queue": queue,
+        "original_drafts": original_drafts,
+    }
+
+
+def _mini_candidate_action(service: XAgentService, payload: dict[str, Any]) -> dict[str, Any]:
+    candidate_id = _optional_int(payload.get("candidate_id"))
+    if candidate_id is None:
+        raise ValueError("candidate_id is required.")
+    action = str(payload.get("action") or "").strip()
+    if not action:
+        raise ValueError("action is required.")
+    draft_guidance = str(payload.get("draft_guidance") or "")
+    return service.candidate_action(
+        candidate_id,
+        action,
+        notify_telegram=False,
+        draft_guidance=draft_guidance,
+    )
+
+
+def _mini_draft_action(service: XAgentService, payload: dict[str, Any]) -> dict[str, Any]:
+    draft_id = _optional_int(payload.get("draft_id"))
+    if draft_id is None:
+        raise ValueError("draft_id is required.")
+    action = str(payload.get("action") or "").strip()
+    if not action:
+        raise ValueError("action is required.")
+    draft_text = payload.get("draft_text")
+    if draft_text is not None:
+        draft_text = str(draft_text)
+    return service.draft_action(draft_id, action, notify_telegram=False, draft_text=draft_text)
+
+
+def _mini_original_action(service: XAgentService, payload: dict[str, Any]) -> dict[str, Any]:
+    topic = str(payload.get("topic") or "")
+    draft_ids = service.create_original_drafts(topic, notify_telegram=False)
+    return {"message": f"Created {len(draft_ids)} original draft(s).", "draft_ids": draft_ids}
+
+
+def _render_mini_app() -> str:
+    return """<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Clearfeed Mini App</title>
+  <style>
+    :root {
+      --bg: #0b1118;
+      --panel: #13202c;
+      --panel-2: #0f1a24;
+      --text: #edf4fb;
+      --muted: #93a7bc;
+      --accent: #7ee0ff;
+      --ok: #34d399;
+      --warn: #f7c75f;
+      --bad: #fb7185;
+      --border: #244056;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background:
+        radial-gradient(circle at top left, rgba(126,224,255,.16) 0%, transparent 28%),
+        linear-gradient(180deg, #081018 0%, var(--bg) 46%, #060b10 100%);
+      color: var(--text);
+      font-family: "Aptos", "Segoe UI Variable Text", "Segoe UI", sans-serif;
+    }
+    .shell { max-width: 860px; margin: 0 auto; padding: 18px 14px 40px; }
+    .hero, .panel, .card {
+      border: 1px solid var(--border);
+      background: linear-gradient(180deg, rgba(19,32,44,.95), rgba(15,26,36,.96));
+      border-radius: 20px;
+      box-shadow: 0 18px 44px rgba(0,0,0,.22);
+    }
+    .hero { padding: 18px; margin-bottom: 14px; }
+    .hero h1 { margin: 0 0 8px; font-size: 28px; letter-spacing: -.03em; }
+    .hero p, .note, .meta, .empty, .subtle { color: var(--muted); }
+    .row { display: flex; gap: 10px; flex-wrap: wrap; }
+    .pill {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 7px 11px; border-radius: 999px;
+      border: 1px solid rgba(255,255,255,.08); background: rgba(255,255,255,.04);
+      font-size: 12px;
+    }
+    .tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 14px 0; }
+    .tabs button, button, textarea, input {
+      font: inherit;
+    }
+    .tabs button, .actions button {
+      border: 1px solid var(--border);
+      background: rgba(255,255,255,.04);
+      color: var(--text);
+      border-radius: 14px;
+      padding: 11px 12px;
+    }
+    .tabs button.active { background: rgba(126,224,255,.15); border-color: rgba(126,224,255,.5); }
+    .stack { display: grid; gap: 12px; }
+    .card { padding: 14px; }
+    .card h2, .card h3 { margin: 0 0 8px; }
+    .tweet { font-size: 15px; line-height: 1.5; white-space: pre-wrap; }
+    textarea, input {
+      width: 100%;
+      border-radius: 14px;
+      border: 1px solid var(--border);
+      background: rgba(6,11,16,.55);
+      color: var(--text);
+      padding: 12px;
+      min-height: 92px;
+    }
+    input { min-height: 0; }
+    .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+    .actions button.ok { background: rgba(52,211,153,.14); }
+    .actions button.bad { background: rgba(251,113,133,.14); }
+    .actions button.ghost { background: rgba(255,255,255,.02); }
+    .actions button:disabled { opacity: .6; }
+    .draft-box { margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,.08); }
+    .draft-head { display: flex; justify-content: space-between; gap: 10px; align-items: start; }
+    .message {
+      margin: 0 0 12px;
+      padding: 12px 14px;
+      border-radius: 14px;
+      border: 1px solid rgba(126,224,255,.25);
+      background: rgba(126,224,255,.1);
+      display: none;
+    }
+    .message.error {
+      border-color: rgba(251,113,133,.35);
+      background: rgba(251,113,133,.12);
+    }
+    .empty {
+      padding: 18px;
+      text-align: center;
+      border: 1px dashed rgba(255,255,255,.14);
+      border-radius: 16px;
+    }
+    .footer-space { height: 22px; }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <section class="hero">
+      <div class="row" style="justify-content:space-between;align-items:flex-start;">
+        <div>
+          <div class="subtle" style="font-size:12px;text-transform:uppercase;letter-spacing:.12em;">Telegram Mini App</div>
+          <h1>Clearfeed</h1>
+          <p>Review the queue, steer drafts with a brief, edit replies, and mark work complete without leaving Telegram.</p>
+        </div>
+      </div>
+      <div class="row" id="worker-meta"></div>
+    </section>
+    <div id="flash" class="message"></div>
+    <div class="tabs">
+      <button type="button" id="tab-queue" class="active">Queue</button>
+      <button type="button" id="tab-originals">Original Drafts</button>
+    </div>
+    <section id="queue-view" class="stack"></section>
+    <section id="originals-view" class="stack" style="display:none;"></section>
+    <div class="footer-space"></div>
+  </div>
+  <script>
+    (() => {
+      const flash = document.getElementById('flash');
+      const queueView = document.getElementById('queue-view');
+      const originalsView = document.getElementById('originals-view');
+      const tabQueue = document.getElementById('tab-queue');
+      const tabOriginals = document.getElementById('tab-originals');
+      const workerMeta = document.getElementById('worker-meta');
+      const search = new URLSearchParams(window.location.search);
+      const focusCandidateId = search.get('candidate_id');
+      const focusDraftId = search.get('draft_id');
+      const focusView = search.get('view') || 'queue';
+      const webApp = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
+      if (webApp) {
+        webApp.ready();
+        if (webApp.expand) {
+          webApp.expand();
+        }
+      }
+
+      const state = {
+        payload: null,
+        activeView: focusView === 'originals' ? 'originals' : 'queue',
+      };
+
+      const initHeaders = () => {
+        const headers = { 'Content-Type': 'application/json' };
+        if (webApp && webApp.initData) {
+          headers['X-Telegram-Init-Data'] = webApp.initData;
+        }
+        return headers;
+      };
+
+      const setMessage = (message, isError = false) => {
+        if (!message) {
+          flash.style.display = 'none';
+          flash.textContent = '';
+          flash.classList.remove('error');
+          return;
+        }
+        flash.textContent = message;
+        flash.style.display = 'block';
+        flash.classList.toggle('error', isError);
+      };
+
+      const request = async (path, options = {}) => {
+        const response = await fetch(path, {
+          cache: 'no-store',
+          ...options,
+          headers: {
+            ...initHeaders(),
+            ...(options.headers || {}),
+          },
+        });
+        const payload = await response.json();
+        if (!response.ok) {
+          throw new Error(payload.error || 'Request failed.');
+        }
+        return payload;
+      };
+
+      const escapeHtml = (value) => String(value || '')
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('\"', '&quot;');
+
+      const copyText = async (text) => {
+        await navigator.clipboard.writeText(text || '');
+        if (webApp && webApp.HapticFeedback && webApp.HapticFeedback.notificationOccurred) {
+          webApp.HapticFeedback.notificationOccurred('success');
+        }
+      };
+
+      const renderWorkerMeta = (payload) => {
+        workerMeta.innerHTML = '';
+        const items = [
+          payload.worker.badge_html || '',
+          `Next scan: ${payload.worker.next_run_text || 'n/a'}`,
+          payload.app.telegram_webapp_enabled ? 'Remote access ready' : 'Remote access not configured',
+        ];
+        items.forEach((item) => {
+          const pill = document.createElement('div');
+          pill.className = 'pill';
+          pill.innerHTML = item;
+          workerMeta.appendChild(pill);
+        });
+      };
+
+      const renderDraftCard = (draft, { parent, title, generationNotes = '', original = false }) => {
+        const card = document.createElement('article');
+        card.className = 'card';
+        card.id = `draft-${draft.id}`;
+        card.innerHTML = `
+          <div class="draft-head">
+            <div>
+              <h3>${escapeHtml(title)}</h3>
+              <div class="meta">${escapeHtml(draft.status_label)} | ${escapeHtml(draft.updated_label)}</div>
+            </div>
+            <div class="pill">${escapeHtml(draft.draft_type)}</div>
+          </div>
+          ${generationNotes ? `<div class="note" style="margin-top:10px;"><strong>Brief:</strong><br>${escapeHtml(generationNotes)}</div>` : ''}
+          <div class="draft-box">
+            <textarea data-draft-text="${draft.id}" ${draft.is_editable ? '' : 'readonly'}>${escapeHtml(draft.draft_text)}</textarea>
+            <div class="meta" style="margin-top:8px;">${draft.char_count}${draft.draft_text_limit ? ` / ${draft.draft_text_limit}` : ' chars'}</div>
+            ${draft.has_image_path ? `<div class="note" style="margin-top:8px;">Image: ${escapeHtml(draft.image_path)}</div>` : ''}
+            <div class="actions">
+              ${draft.is_editable ? `<button type="button" class="ghost" data-draft-action="save_text" data-draft-id="${draft.id}">Save</button>` : ''}
+              <button type="button" class="ghost" data-copy-draft="${draft.id}">Copy</button>
+              ${draft.is_editable ? `<button type="button" class="ok" data-draft-action="manual" data-draft-id="${draft.id}">Mark Posted</button>` : ''}
+              ${draft.is_editable ? `<button type="button" class="bad" data-draft-action="reject" data-draft-id="${draft.id}">Reject</button>` : ''}
+              ${draft.can_generate_image ? `<button type="button" data-draft-action="image" data-draft-id="${draft.id}">Generate Image</button>` : ''}
+            </div>
+          </div>
+        `;
+        parent.appendChild(card);
+      };
+
+      const renderQueue = (payload) => {
+        queueView.innerHTML = '';
+        if (!payload.queue.length) {
+          queueView.innerHTML = '<div class="empty">No tweets are waiting in the queue right now.</div>';
+          return;
+        }
+        payload.queue.forEach((candidate) => {
+          const card = document.createElement('article');
+          card.className = 'card';
+          card.id = `candidate-${candidate.id}`;
+          card.innerHTML = `
+            <div class="row" style="justify-content:space-between;align-items:flex-start;">
+              <div>
+                <div class="row">
+                  <span class="pill">${escapeHtml(candidate.source_key)}</span>
+                  <span class="pill">${escapeHtml(candidate.status_label)}</span>
+                  <span class="pill">${escapeHtml(candidate.recommended_action)}</span>
+                </div>
+                <h3 style="margin:10px 0 6px;">@${escapeHtml(candidate.author_handle)}</h3>
+                <div class="meta">${escapeHtml(candidate.age_label)} old | ${escapeHtml(candidate.metrics_label)}</div>
+              </div>
+              <div class="pill">${candidate.total_score.toFixed(1)}</div>
+            </div>
+            <p class="tweet">${escapeHtml(candidate.text)}</p>
+            <div class="note">${escapeHtml(candidate.why)}</div>
+            <div class="note" style="margin-top:10px;"><a href="${escapeHtml(candidate.url)}" target="_blank" style="color:var(--accent);">Open tweet</a></div>
+            <div class="draft-box">
+              <div class="meta" style="margin-bottom:8px;">Draft Brief</div>
+              <textarea data-candidate-brief="${candidate.id}" placeholder="Add the angle, objection, or structure you want the next draft to lean into.">${escapeHtml(candidate.draft_generation_notes || '')}</textarea>
+              <div class="actions">
+                <button type="button" class="ok" data-candidate-action="draft_reply" data-candidate-id="${candidate.id}" ${candidate.can_generate_draft ? '' : 'disabled'}>Draft Reply</button>
+                <button type="button" data-candidate-action="draft_quote" data-candidate-id="${candidate.id}" ${candidate.can_generate_draft ? '' : 'disabled'}>Draft Quote</button>
+                <button type="button" class="ghost" data-candidate-action="watch" data-candidate-id="${candidate.id}">Watch</button>
+                <button type="button" class="bad" data-candidate-action="ignore" data-candidate-id="${candidate.id}">Dismiss</button>
+              </div>
+            </div>
+          `;
+          queueView.appendChild(card);
+          if (candidate.draft) {
+            renderDraftCard(candidate.draft, {
+              parent: card,
+              title: `Latest Draft #${candidate.draft.id}`,
+              generationNotes: candidate.draft.generation_notes || '',
+            });
+          }
+        });
+      };
+
+      const renderOriginals = (payload) => {
+        originalsView.innerHTML = '';
+        const composer = document.createElement('section');
+        composer.className = 'panel';
+        composer.style.padding = '14px';
+        composer.innerHTML = `
+          <h2 style="margin:0 0 8px;">Original Post Drafts</h2>
+          <div class="note">Use the same local drafting stack to create standalone post options.</div>
+          <div style="margin-top:10px;">
+            <input type="text" id="original-topic" placeholder="Optional topic, angle, or context">
+            <div class="actions">
+              <button type="button" class="ok" id="generate-originals" ${payload.app.drafting_enabled ? '' : 'disabled'}>Generate Original Drafts</button>
+            </div>
+          </div>
+        `;
+        originalsView.appendChild(composer);
+        if (!payload.original_drafts.length) {
+          const empty = document.createElement('div');
+          empty.className = 'empty';
+          empty.textContent = 'No standalone drafts yet.';
+          originalsView.appendChild(empty);
+          return;
+        }
+        payload.original_drafts.forEach((draft) => {
+          renderDraftCard(draft, {
+            parent: originalsView,
+            title: `Original Draft #${draft.id}`,
+            original: true,
+          });
+        });
+      };
+
+      const render = (payload) => {
+        state.payload = payload;
+        renderWorkerMeta(payload);
+        renderQueue(payload);
+        renderOriginals(payload);
+        const queueActive = state.activeView === 'queue';
+        queueView.style.display = queueActive ? 'grid' : 'none';
+        originalsView.style.display = queueActive ? 'none' : 'grid';
+        tabQueue.classList.toggle('active', queueActive);
+        tabOriginals.classList.toggle('active', !queueActive);
+        const focusId = focusDraftId ? `draft-${focusDraftId}` : focusCandidateId ? `candidate-${focusCandidateId}` : '';
+        if (focusId) {
+          const el = document.getElementById(focusId);
+          if (el) {
+            el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          }
+        }
+      };
+
+      const refresh = async (message = '') => {
+        try {
+          const payload = await request(`/api/mini/bootstrap${window.location.search || ''}`);
+          render(payload);
+          setMessage(message || '');
+        } catch (error) {
+          setMessage(error.message, true);
+        }
+      };
+
+      document.addEventListener('click', async (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLElement)) {
+          return;
+        }
+        if (target.id === 'generate-originals') {
+          try {
+            const topic = document.getElementById('original-topic').value;
+            const payload = await request('/api/mini/original', {
+              method: 'POST',
+              body: JSON.stringify({ topic }),
+            });
+            render(payload);
+            setMessage(payload.message || 'Original drafts created.');
+          } catch (error) {
+            setMessage(error.message, true);
+          }
+          return;
+        }
+        const copyDraftId = target.getAttribute('data-copy-draft');
+        if (copyDraftId) {
+          const textarea = document.querySelector(`[data-draft-text="${copyDraftId}"]`);
+          if (textarea) {
+            try {
+              await copyText(textarea.value);
+              setMessage(`Copied draft #${copyDraftId}.`);
+            } catch (error) {
+              setMessage('Copy failed.', true);
+            }
+          }
+          return;
+        }
+        const candidateAction = target.getAttribute('data-candidate-action');
+        if (candidateAction) {
+          const candidateId = target.getAttribute('data-candidate-id');
+          const brief = document.querySelector(`[data-candidate-brief="${candidateId}"]`);
+          try {
+            const payload = await request('/api/mini/candidate-action', {
+              method: 'POST',
+              body: JSON.stringify({
+                candidate_id: Number(candidateId),
+                action: candidateAction,
+                draft_guidance: brief ? brief.value : '',
+              }),
+            });
+            render(payload);
+            setMessage(payload.message || 'Candidate updated.');
+          } catch (error) {
+            setMessage(error.message, true);
+          }
+          return;
+        }
+        const draftAction = target.getAttribute('data-draft-action');
+        if (draftAction) {
+          const draftId = target.getAttribute('data-draft-id');
+          const textarea = document.querySelector(`[data-draft-text="${draftId}"]`);
+          try {
+            const payload = await request('/api/mini/draft-action', {
+              method: 'POST',
+              body: JSON.stringify({
+                draft_id: Number(draftId),
+                action: draftAction,
+                draft_text: textarea ? textarea.value : '',
+              }),
+            });
+            render(payload);
+            setMessage(payload.message || 'Draft updated.');
+          } catch (error) {
+            setMessage(error.message, true);
+          }
+        }
+      });
+
+      tabQueue.addEventListener('click', () => {
+        state.activeView = 'queue';
+        if (state.payload) {
+          render(state.payload);
+        }
+      });
+      tabOriginals.addEventListener('click', () => {
+        state.activeView = 'originals';
+        if (state.payload) {
+          render(state.payload);
+        }
+      });
+
+      refresh();
+    })();
+  </script>
+</body>
+</html>"""
 
 
 def _hero_state_badge(worker_state: str) -> str:
@@ -347,6 +1049,7 @@ def _render_dashboard(
     archive_voice: dict[str, Any],
     voice_review: dict[str, Any],
     drafting_enabled: bool,
+    image_generation_enabled: bool,
     worker_ready: bool,
     telegram_enabled: bool,
     worker_min_delay_minutes: int,
@@ -407,14 +1110,14 @@ def _render_dashboard(
         database_path,
         draft_text_limit,
         drafting_enabled=drafting_enabled,
-        image_generation_enabled=bool(setup_status.get("image_generation", {}).get("ok", False)),
+        image_generation_enabled=image_generation_enabled,
     )
     original_drafts_html = "".join(
         _original_draft_card(
             row,
             draft_text_limit,
             drafting_enabled,
-            bool(setup_status.get("image_generation", {}).get("ok", False)),
+            image_generation_enabled,
         )
         for row in latest_original_drafts
     )

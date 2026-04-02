@@ -72,6 +72,11 @@ if (-not (Test-Path ".\\.env")) {
     Write-Host "It does not replace the whole file, but you should still back up one-time secrets before rerunning setup."
 }
 
+Set-EnvValue -Path ".\\.env" -Key "TELEGRAM_WEBAPP_ENABLED" -Value "true"
+if (-not (Select-String -Path ".\\.env" -Pattern "^PUBLIC_BASE_URL=" -Quiet)) {
+    Set-EnvValue -Path ".\\.env" -Key "PUBLIC_BASE_URL" -Value ""
+}
+
 Write-Host ""
 Write-Host "Choose your AI provider:"
 Write-Host "  1. Vertex"
@@ -150,6 +155,7 @@ Write-Host "  Start dashboard: .\\scripts\\run-dashboard.ps1"
 Write-Host "  Start worker: .\\scripts\\run-worker.ps1"
 Write-Host "  Or both: .\\scripts\\start_services.ps1"
 Write-Host "  Clearfeed drafts locally. Copy finished posts to X and publish manually."
+Write-Host "  For Telegram Mini App remote access, set PUBLIC_BASE_URL to your HTTPS tunnel URL."
 Write-Host ""
 Write-Host "Archive bootstrap:"
 Write-Host "  Import an unzipped X archive: .\\scripts\\import-x-archive.ps1 -ArchiveDir \"C:\\path\\to\\twitter-archive\""
