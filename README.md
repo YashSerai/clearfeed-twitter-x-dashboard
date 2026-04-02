@@ -31,7 +31,7 @@ The point is simple: tighter inputs, better drafting, and a workflow where the h
 - AI-assisted profile setup with questionnaire templates and prompt packs.
 - Editable drafts so you can replace or steer the AI instead of accepting whatever it generated.
 - Copy-first manual posting workflow.
-- Optional Telegram Mini App and alert mirroring.
+- Optional Telegram access through the tunneled Mini App.
 
 ## Dashboard Preview
 ![Clearfeed Dashboard](docs/assets/dashboard-screenshot.png)
@@ -122,15 +122,20 @@ Then open [http://127.0.0.1:8787/](http://127.0.0.1:8787/).
 .\scripts\run-worker.ps1
 ```
 
-10. Optional: enable remote Telegram Mini App access.
-Set `PUBLIC_BASE_URL` in `.env` to an HTTPS tunnel URL that forwards to `http://127.0.0.1:8787`.
-For v1, use a single tunnel provider path such as Cloudflare Tunnel:
+10. Optional: enable Telegram access on your phone or another network.
+Choose `Telegram Mini App with automatic tunnel` during `.\scripts\setup.ps1`.
+Then `.\scripts\start_services.ps1` will:
+- start a Cloudflare quick tunnel automatically
+- update `PUBLIC_BASE_URL` automatically
+- start the dashboard and worker with that tunneled URL
+- let Telegram open the same Clearfeed workflow through the Mini App
 
-```powershell
-cloudflared tunnel --url http://127.0.0.1:8787
-```
+Telegram uses the same local app and database as the desktop dashboard:
+- desktop dashboard: `http://127.0.0.1:8787/`
+- local Mini App page: `http://127.0.0.1:8787/mini`
+- remote Telegram access: `PUBLIC_BASE_URL/mini`
 
-Then restart the dashboard or worker so Telegram alerts and the bot menu button point at the Mini App.
+Legacy Telegram forwarding is disabled by default. Telegram is for opening Clearfeed, not for mirroring draft and post-status messages.
 
 ## Common Commands
 ```powershell

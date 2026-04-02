@@ -232,33 +232,38 @@ Clearfeed keeps `WhoAmI.md` separate and does not rewrite `Humanizer.md`.
 - Clearfeed drafts locally and keeps the review history on your machine.
 - When a draft is ready, copy it to X and post it manually.
 - Then mark the draft as manual in Clearfeed so it leaves the active queue and still feeds Adaptive Voice.
-- Telegram can surface the same core drafting workflow through the Mini App, while the desktop dashboard remains the default workstation.
+- Telegram can open the same core Clearfeed workflow through the Mini App, while the desktop dashboard remains the default workstation.
 
 ## Telegram Mini App
-Telegram now works best as a Mini App backed by the same local dashboard service and SQLite database.
+Telegram now works as remote access to the same Clearfeed app through an HTTPS tunnel. The old draft-and-status forwarding path is disabled by default.
 
 Required env keys:
 - `TELEGRAM_BOT_TOKEN`
 - `TELEGRAM_CHAT_ID`
 - `TELEGRAM_WEBAPP_ENABLED=true`
+- `CLOUDFLARED_AUTO_START=true`
+- `CLOUDFLARED_TUNNEL_MODE=quick`
 - `PUBLIC_BASE_URL=https://your-public-https-url`
 
 How it works:
 - the desktop dashboard still runs locally on `http://127.0.0.1:8787`
-- Telegram alerts open the Mini App instead of trying to do the full drafting workflow inside chat buttons
+- Telegram opens the Mini App instead of trying to do the full drafting workflow inside chat buttons
 - the Mini App calls the same local service methods as the dashboard, so edits, saved drafts, image generation, and manual-post decisions stay in sync
+- the tunnel URL is the Telegram-facing version of your local app
+- `start_services.ps1` can launch the quick tunnel for you and update `PUBLIC_BASE_URL` automatically
 
-For v1, use one tunnel provider path consistently. Example with Cloudflare Tunnel:
+User-facing URLs:
+- desktop dashboard: `http://127.0.0.1:8787/`
+- local Mini App page: `http://127.0.0.1:8787/mini`
+- remote Telegram Mini App: `PUBLIC_BASE_URL/mini`
 
-```powershell
-cloudflared tunnel --url http://127.0.0.1:8787
-```
-
-Then:
-1. copy the HTTPS URL into `PUBLIC_BASE_URL`
-2. restart `.\scripts\run-dashboard.ps1`
-3. restart `.\scripts\run-worker.ps1`
-4. open the bot in Telegram and launch the Clearfeed Mini App from the menu button or alert message
+Recommended setup path:
+1. run `.\scripts\setup.ps1`
+2. choose `Telegram Mini App with automatic tunnel`
+3. fill `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` in `.env`
+4. run `.\scripts\start_services.ps1`
+5. let Clearfeed start the Cloudflare quick tunnel and populate `PUBLIC_BASE_URL`
+6. open the bot in Telegram and launch Clearfeed from the menu button or alert message
 
 Remote use only works while your computer is awake, online, and the tunnel is still running.
 
@@ -294,7 +299,8 @@ Important rules:
 - OpenAI-compatible text works but vision/image features are unavailable: set `AI_VISION_MODEL` and/or `AI_IMAGE_MODEL`, and make sure your provider actually supports those capabilities.
 - Archive import fails: point the import at the unzipped archive root folder, not a random parent folder.
 - Dashboard opens but nothing appears: make sure at least one list URL is set, or enable home timeline discovery.
-- Telegram Mini App fails to open remotely: verify `PUBLIC_BASE_URL` is HTTPS, the tunnel points to `http://127.0.0.1:8787`, and the dashboard process is running.
+- Telegram Mini App fails to open remotely: verify `TELEGRAM_WEBAPP_ENABLED=true`, `CLOUDFLARED_AUTO_START=true`, `PUBLIC_BASE_URL` was populated after `.\scripts\start_services.ps1`, and the dashboard process is running.
+- `start_services.ps1` fails in Telegram Mini App mode: check that `cloudflared` is installed and that the machine can open a Cloudflare quick tunnel.
 - Telegram actions do nothing: Telegram remains disabled until `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` are configured.
 - Vertex auth failures: verify `GOOGLE_CLOUD_PROJECT` and `GOOGLE_APPLICATION_CREDENTIALS`, then confirm the account has access to the configured models.
 - Archive proposals or voice reviews feel weak on a local model: try a stronger hosted model for `AI_POLISH_MODEL`.

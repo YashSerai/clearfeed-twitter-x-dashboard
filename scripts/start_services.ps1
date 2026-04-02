@@ -79,6 +79,8 @@ if (-not (Test-Path $python)) {
 
 New-Item -ItemType Directory -Force -Path $logsDir | Out-Null
 
+& "$PSScriptRoot\start_tunnel.ps1" -Quiet
+
 $dashboardResult = Start-ManagedPythonService `
     -Label "Dashboard" `
     -ScriptPath ".\scripts\run_dashboard.py" `

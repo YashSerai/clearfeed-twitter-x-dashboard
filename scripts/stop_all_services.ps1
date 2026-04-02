@@ -30,6 +30,19 @@ foreach ($process in @($dashboardProcesses)) {
     $dashboardCount += 1
 }
 
+$tunnelProcesses = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+    Where-Object {
+        $_.Name -like "cloudflared*" -and
+        $_.CommandLine -and
+        $_.CommandLine -like "*http://127.0.0.1:8787*"
+    }
+
+$tunnelCount = 0
+foreach ($process in @($tunnelProcesses)) {
+    Stop-Process -Id $process.ProcessId -Force -ErrorAction SilentlyContinue
+    $tunnelCount += 1
+}
+
 if (-not $Quiet) {
     if ($workerCount -gt 0) {
         Write-Host "Stopped $workerCount worker process(es)."
@@ -43,5 +56,12 @@ if (-not $Quiet) {
     }
     else {
         Write-Host "No dashboard process found."
+    }
+
+    if ($tunnelCount -gt 0) {
+        Write-Host "Stopped $tunnelCount tunnel process(es)."
+    }
+    else {
+        Write-Host "No tunnel process found."
     }
 }

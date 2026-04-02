@@ -72,9 +72,20 @@ if (-not (Test-Path ".\\.env")) {
     Write-Host "It does not replace the whole file, but you should still back up one-time secrets before rerunning setup."
 }
 
-Set-EnvValue -Path ".\\.env" -Key "TELEGRAM_WEBAPP_ENABLED" -Value "true"
 if (-not (Select-String -Path ".\\.env" -Pattern "^PUBLIC_BASE_URL=" -Quiet)) {
     Set-EnvValue -Path ".\\.env" -Key "PUBLIC_BASE_URL" -Value ""
+}
+if (-not (Select-String -Path ".\\.env" -Pattern "^TELEGRAM_WEBAPP_ENABLED=" -Quiet)) {
+    Set-EnvValue -Path ".\\.env" -Key "TELEGRAM_WEBAPP_ENABLED" -Value "false"
+}
+if (-not (Select-String -Path ".\\.env" -Pattern "^TELEGRAM_LEGACY_FORWARDING_ENABLED=" -Quiet)) {
+    Set-EnvValue -Path ".\\.env" -Key "TELEGRAM_LEGACY_FORWARDING_ENABLED" -Value "false"
+}
+if (-not (Select-String -Path ".\\.env" -Pattern "^CLOUDFLARED_AUTO_START=" -Quiet)) {
+    Set-EnvValue -Path ".\\.env" -Key "CLOUDFLARED_AUTO_START" -Value "false"
+}
+if (-not (Select-String -Path ".\\.env" -Pattern "^CLOUDFLARED_TUNNEL_MODE=" -Quiet)) {
+    Set-EnvValue -Path ".\\.env" -Key "CLOUDFLARED_TUNNEL_MODE" -Value "quick"
 }
 
 Write-Host ""
@@ -128,6 +139,49 @@ if ($providerChoice -eq "1") {
 }
 
 Write-Host ""
+Write-Host "Choose your Telegram access mode:"
+Write-Host "  1. Off"
+Write-Host "  2. Telegram Mini App with automatic tunnel"
+$telegramChoice = (Read-Host "Enter 1 or 2").Trim()
+if ($telegramChoice -ne "2") {
+    $telegramChoice = "1"
+}
+
+if ($telegramChoice -eq "2") {
+    Set-EnvValue -Path ".\\.env" -Key "TELEGRAM_WEBAPP_ENABLED" -Value "true"
+    Set-EnvValue -Path ".\\.env" -Key "TELEGRAM_LEGACY_FORWARDING_ENABLED" -Value "false"
+    Set-EnvValue -Path ".\\.env" -Key "CLOUDFLARED_AUTO_START" -Value "true"
+    Set-EnvValue -Path ".\\.env" -Key "CLOUDFLARED_TUNNEL_MODE" -Value "quick"
+    try {
+        & "$PSScriptRoot\\ensure-cloudflared.ps1"
+    }
+    catch {
+        Write-Host "cloudflared install/setup failed: $($_.Exception.Message)"
+        Write-Host "You can still continue, but start_services.ps1 will fail until cloudflared is installed."
+    }
+    $telegramSummary = @(
+        "Selected Telegram mode: Mini App over tunnel"
+        "Fill these next in .env:"
+        "  TELEGRAM_BOT_TOKEN"
+        "  TELEGRAM_CHAT_ID"
+        "What happens when you start services:"
+        "  start_services.ps1 launches a cloudflared quick tunnel automatically"
+        "  PUBLIC_BASE_URL is updated automatically from that tunnel"
+        "  Telegram opens Clearfeed through the menu button and Mini App"
+    )
+}
+else {
+    Set-EnvValue -Path ".\\.env" -Key "TELEGRAM_WEBAPP_ENABLED" -Value "false"
+    Set-EnvValue -Path ".\\.env" -Key "TELEGRAM_LEGACY_FORWARDING_ENABLED" -Value "false"
+    Set-EnvValue -Path ".\\.env" -Key "CLOUDFLARED_AUTO_START" -Value "false"
+    Set-EnvValue -Path ".\\.env" -Key "CLOUDFLARED_TUNNEL_MODE" -Value "quick"
+    $telegramSummary = @(
+        "Selected Telegram mode: Off"
+        "Clearfeed will run locally only until you re-enable Telegram Mini App mode in setup or by editing .env."
+    )
+}
+
+Write-Host ""
 & $python ".\\scripts\\bootstrap_db.py"
 if ($LASTEXITCODE -ne 0) {
     throw "Database bootstrap failed."
@@ -137,6 +191,10 @@ Write-Host ""
 Write-Host "Setup complete."
 Write-Host ""
 foreach ($line in $providerSummary) {
+    Write-Host $line
+}
+Write-Host ""
+foreach ($line in $telegramSummary) {
     Write-Host $line
 }
 Write-Host ""
@@ -154,8 +212,8 @@ Write-Host "  If your X session is missing or stale: .\\scripts\\capture-x-sessi
 Write-Host "  Start dashboard: .\\scripts\\run-dashboard.ps1"
 Write-Host "  Start worker: .\\scripts\\run-worker.ps1"
 Write-Host "  Or both: .\\scripts\\start_services.ps1"
+Write-Host "  If Telegram Mini App mode is enabled, start_services.ps1 also starts the tunnel for you."
 Write-Host "  Clearfeed drafts locally. Copy finished posts to X and publish manually."
-Write-Host "  For Telegram Mini App remote access, set PUBLIC_BASE_URL to your HTTPS tunnel URL."
 Write-Host ""
 Write-Host "Archive bootstrap:"
 Write-Host "  Import an unzipped X archive: .\\scripts\\import-x-archive.ps1 -ArchiveDir \"C:\\path\\to\\twitter-archive\""

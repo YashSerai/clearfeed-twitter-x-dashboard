@@ -628,7 +628,7 @@ class XAgentService:
                         why=why,
                     )
 
-                if self.config.telegram_enabled:
+                if self.config.telegram_legacy_forwarding_enabled:
                     for row in self._select_candidates_for_alerts(
                         db.list_unalerted_candidates(conn, max(self.config.worker.max_candidates_per_cycle * 6, 30))
                     ):
@@ -792,12 +792,8 @@ class XAgentService:
         if text.startswith("/status"):
             self.telegram.send_message(self._status_snapshot(conn))
             return
-        if text.startswith("/post"):
-            topic = text[len("/post") :].strip()
-            self._generate_original_post_drafts(conn, topic)
-            return
         self.telegram.send_message(
-            "Commands:\n/status\n/post optional-topic\n/app\n\nCandidate alerts will keep arriving automatically."
+            "Use the Telegram menu button to open Clearfeed.\n\nOptional commands:\n/status\n/app"
         )
 
     def _handle_callback(self, conn: sqlite3.Connection, callback: dict[str, Any]) -> None:
@@ -812,14 +808,6 @@ class XAgentService:
         entity_id = int(raw_id)
 
         if prefix == "c":
-            if action == "dr":
-                self.telegram.safe_answer_callback_query(callback_id, "Drafting reply")
-                self._generate_candidate_draft(conn, entity_id, "reply")
-                return
-            if action == "dq":
-                self.telegram.safe_answer_callback_query(callback_id, "Drafting quote reply")
-                self._generate_candidate_draft(conn, entity_id, "quote_reply")
-                return
             if action == "wt":
                 db.set_candidate_status(conn, entity_id, "watched")
                 db.record_event(conn, "candidate", entity_id, "watch", {})
@@ -833,31 +821,7 @@ class XAgentService:
 
         if prefix == "d":
             if action == "cp":
-                draft = db.get_draft(conn, entity_id)
-                if draft:
-                    db.record_event(conn, "draft", entity_id, "copy_prompted", {"via": "telegram"})
-                    self.telegram.send_message(
-                        f"Copy this draft manually:\n\n{draft['draft_text']}"
-                    )
-                self.telegram.safe_answer_callback_query(callback_id, "Sent draft text for manual copy")
-                return
-            if action == "ap":
-                self._mark_draft_manual(conn, entity_id, source_channel="telegram")
-                self.telegram.safe_answer_callback_query(callback_id, "Marked manual")
-                return
-            if action == "mp":
-                self._mark_draft_manual(conn, entity_id, source_channel="telegram")
-                self.telegram.safe_answer_callback_query(callback_id, "Marked manual")
-                return
-            if action == "im":
-                self.telegram.safe_answer_callback_query(callback_id, "Generating image")
-                self._generate_draft_image(conn, entity_id)
-                return
-            if action == "rj":
-                db.mark_draft_status(conn, entity_id, "rejected")
-                db.record_event(conn, "draft", entity_id, "reject", {})
-                db.record_voice_learning_event(conn, entity_id, "rejected", "telegram")
-                self.telegram.safe_answer_callback_query(callback_id, "Rejected")
+                self.telegram.safe_answer_callback_query(callback_id, "Open the Mini App to review and copy this draft.")
                 return
 
         self.telegram.safe_answer_callback_query(callback_id, "No action taken")
@@ -942,7 +906,7 @@ class XAgentService:
         if normalized_guidance:
             event_payload["generation_notes"] = normalized_guidance
         db.record_event(conn, "draft", draft_id, "created", event_payload)
-        if notify_telegram and self.config.telegram_enabled:
+        if notify_telegram and self.config.telegram_legacy_forwarding_enabled:
             message = self.telegram.send_message(
                 self._render_draft_message(conn, draft_id),
                 reply_markup=self._draft_keyboard(draft_id, has_image_prompt=bool(draft.image_prompt)),
@@ -959,7 +923,7 @@ class XAgentService:
     ) -> dict[str, str]:
         draft = db.get_draft(conn, draft_id)
         if not draft:
-            if notify_telegram:
+            if notify_telegram and self.config.telegram_legacy_forwarding_enabled:
                 self.telegram.send_message(f"Draft {draft_id} not found.")
             raise RuntimeError(f"Draft {draft_id} not found")
 
@@ -968,7 +932,7 @@ class XAgentService:
             db.set_candidate_status(conn, int(draft["candidate_id"]), "manual_posted")
         db.record_event(conn, "draft", draft_id, "manual_posted", {"via": source_channel})
         db.record_voice_learning_event(conn, draft_id, "manual_posted", source_channel)
-        if notify_telegram and self.config.telegram_enabled:
+        if notify_telegram and self.config.telegram_legacy_forwarding_enabled:
             self.telegram.send_message(
                 f"Draft #{draft_id} marked as posted."
             )
@@ -978,18 +942,18 @@ class XAgentService:
         self._ensure_drafting_enabled()
         draft = db.get_draft(conn, draft_id)
         if not draft:
-            if notify_telegram:
+            if notify_telegram and self.config.telegram_legacy_forwarding_enabled:
                 self.telegram.send_message(f"Draft {draft_id} not found.")
             raise RuntimeError(f"Draft {draft_id} not found")
         if not draft["image_prompt"]:
-            if notify_telegram:
+            if notify_telegram and self.config.telegram_legacy_forwarding_enabled:
                 self.telegram.send_message("This draft does not have an image suggestion.")
             raise RuntimeError(f"Draft {draft_id} has no image prompt")
         output_path = self.config.root / "data" / "generated" / f"draft_{draft_id}.png"
         self.drafting.generate_image(str(draft["image_prompt"]), output_path)
         db.update_draft_image(conn, draft_id, str(output_path))
         db.record_event(conn, "draft", draft_id, "image_generated", {"path": str(output_path)})
-        if notify_telegram and self.config.telegram_enabled:
+        if notify_telegram and self.config.telegram_legacy_forwarding_enabled:
             result = self.telegram.send_photo(
                 caption=self._render_draft_message(conn, draft_id),
                 photo_path=output_path,
@@ -1046,7 +1010,7 @@ class XAgentService:
                 image_reason=draft.image_reason,
             )
             draft_ids.append(draft_id)
-            if notify_telegram and self.config.telegram_enabled:
+            if notify_telegram and self.config.telegram_legacy_forwarding_enabled:
                 message = self.telegram.send_message(
                     self._render_draft_message(conn, draft_id),
                     reply_markup=self._draft_keyboard(draft_id, has_image_prompt=bool(draft.image_prompt)),
@@ -1083,25 +1047,15 @@ class XAgentService:
                     [callback_button("Watch", f"c:wt:{candidate_id}"), callback_button("Ignore", f"c:ig:{candidate_id}")],
                 ]
             )
-        return inline_keyboard(
-            [
-                [("Draft Reply", f"c:dr:{candidate_id}"), ("Draft Quote", f"c:dq:{candidate_id}")],
-                [("Watch", f"c:wt:{candidate_id}"), ("Ignore", f"c:ig:{candidate_id}")],
-            ]
-        )
+        return inline_keyboard([[callback_button("Watch", f"c:wt:{candidate_id}"), callback_button("Ignore", f"c:ig:{candidate_id}")]])
 
     def _draft_keyboard(self, draft_id: int, has_image_prompt: bool) -> dict[str, Any]:
         if self.config.telegram_webapp_enabled:
             rows: list[list[dict[str, Any]]] = [
                 [web_app_button("Open Draft", self._telegram_webapp_url(draft_id=draft_id))],
-                [callback_button("Copy Draft", f"d:cp:{draft_id}")],
             ]
             return inline_keyboard(rows)
-        rows: list[list[tuple[str, str]]] = [[("Copy Draft", f"d:cp:{draft_id}"), ("Mark Posted", f"d:mp:{draft_id}")]]
-        rows.append([("Reject", f"d:rj:{draft_id}")])
-        if has_image_prompt and self.config.image_generation_enabled:
-            rows.append([("Generate Image", f"d:im:{draft_id}")])
-        return inline_keyboard(rows)
+        return inline_keyboard([[callback_button("Open Clearfeed", "noop:noop:0")]])
 
     def _telegram_webapp_url(
         self,

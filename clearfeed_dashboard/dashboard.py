@@ -101,7 +101,7 @@ def run_dashboard(host: str = "127.0.0.1", port: int = 8787) -> None:
                 drafting_enabled=service.config.drafting_enabled,
                 image_generation_enabled=service.config.image_generation_enabled,
                 worker_ready=service.config.session_ready and service.config.sources_ready,
-                telegram_enabled=service.config.telegram_enabled,
+                telegram_enabled=service.config.telegram_webapp_enabled,
                 worker_min_delay_minutes=service.config.worker.min_delay_minutes,
                 worker_max_delay_minutes=service.config.worker.max_delay_minutes,
                 flash=flash,
@@ -2144,7 +2144,7 @@ def _render_dashboard(
           <div class="hero-meta-row">
             <span class="hero-meta-pill">Discovery: weighted lists + optional home</span>
             <span class="hero-meta-pill">Workflow: draft, copy, and post manually</span>
-            <span class="hero-meta-pill">{'Telegram mirror: on' if telegram_enabled else 'Telegram mirror: off'}</span>
+            <span class="hero-meta-pill">{'Telegram remote access: on' if telegram_enabled else 'Telegram remote access: off'}</span>
           </div>
         </div>
         <div class="hero-side">
@@ -2209,7 +2209,7 @@ def _render_dashboard(
           <div class="reset-item"><strong>Posted</strong><small>Clears drafts you already copied out or marked as posted.</small></div>
           <div class="reset-item"><strong>Voice Data</strong><small>Removes archive imports, proposals, and learning events.</small></div>
         </div>
-        <form method="post" action="/reset" onsubmit="return confirm('Reset local state and clear tracked drafts, candidates, and optional Telegram message references?');">
+        <form method="post" action="/reset" onsubmit="return confirm('Reset local state and clear tracked drafts, candidates, and optional Telegram access message references?');">
           <button class="bad" type="submit" data-busy-label="Resetting local state...">Clear History</button>
         </form>
       </section>

@@ -97,6 +97,8 @@ class ConfigTests(unittest.TestCase):
             self._write_repo(root)
             config = load_config(root)
             self.assertFalse(config.telegram_enabled)
+            self.assertFalse(config.telegram_webapp_enabled)
+            self.assertFalse(config.telegram_legacy_forwarding_enabled)
             self.assertFalse(config.drafting_enabled)
             self.assertEqual(config.ai_provider, "vertex")
             self.assertEqual(len(config.sources), 1)
@@ -138,6 +140,21 @@ class ConfigTests(unittest.TestCase):
             self.assertEqual(config.provider_label, "OpenAI-Compatible")
             self.assertFalse(config.web_research_enabled)
             self.assertFalse(config.vision_enabled)
+
+    def test_telegram_mini_app_requires_public_url(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self._write_repo(root)
+            os.environ["TELEGRAM_BOT_TOKEN"] = "token"
+            os.environ["TELEGRAM_CHAT_ID"] = "chat"
+            os.environ["TELEGRAM_WEBAPP_ENABLED"] = "true"
+            config = load_config(root)
+            self.assertTrue(config.telegram_enabled)
+            self.assertFalse(config.telegram_webapp_enabled)
+            os.environ["PUBLIC_BASE_URL"] = "https://example.trycloudflare.com/"
+            config = load_config(root)
+            self.assertEqual(config.normalized_public_base_url, "https://example.trycloudflare.com")
+            self.assertTrue(config.telegram_webapp_enabled)
 
     def test_unsupported_source_type_raises(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

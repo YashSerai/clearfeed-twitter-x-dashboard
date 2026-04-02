@@ -74,6 +74,9 @@ class AppConfig:
     telegram_chat_id: str | None
     public_base_url: str | None
     telegram_webapp_enabled_flag: bool
+    telegram_legacy_forwarding_enabled_flag: bool
+    cloudflared_auto_start: bool
+    cloudflared_tunnel_mode: str
     style_files: list[Path]
     worker: WorkerSettings
     sources: list[SourceConfig]
@@ -95,6 +98,10 @@ class AppConfig:
             and self.telegram_webapp_enabled_flag
             and self.normalized_public_base_url
         )
+
+    @property
+    def telegram_legacy_forwarding_enabled(self) -> bool:
+        return bool(self.telegram_enabled and self.telegram_legacy_forwarding_enabled_flag)
 
     @property
     def provider_label(self) -> str:
@@ -199,16 +206,18 @@ class AppConfig:
                 "detail": f"{len(self.sources)} source(s) configured." if self.sources_ready else "Add at least one source.",
             },
             "telegram": {
-                "ok": self.telegram_enabled,
-                "label": "Telegram Mirror",
+                "ok": self.telegram_webapp_enabled,
+                "label": "Telegram Access",
                 "detail": (
                     (
-                        f"Telegram Mini App enabled at {self.normalized_public_base_url}."
+                        f"Telegram is using the tunneled Mini App at {self.normalized_public_base_url}."
                         if self.telegram_webapp_enabled
-                        else "Telegram alerts enabled. Add PUBLIC_BASE_URL to enable the Mini App."
+                        else (
+                            "Telegram Mini App is enabled. Start services to launch the tunnel and populate PUBLIC_BASE_URL."
+                            if self.telegram_enabled and self.telegram_webapp_enabled_flag
+                            else "Optional. Telegram is off."
+                        )
                     )
-                    if self.telegram_enabled
-                    else "Optional. Currently off."
                 ),
             },
         }
@@ -321,6 +330,9 @@ def load_config(root: str | Path | None = None) -> AppConfig:
         telegram_chat_id=_optional_env("TELEGRAM_CHAT_ID"),
         public_base_url=_optional_env("PUBLIC_BASE_URL"),
         telegram_webapp_enabled_flag=_get_bool("TELEGRAM_WEBAPP_ENABLED", True),
+        telegram_legacy_forwarding_enabled_flag=_get_bool("TELEGRAM_LEGACY_FORWARDING_ENABLED", False),
+        cloudflared_auto_start=_get_bool("CLOUDFLARED_AUTO_START", False),
+        cloudflared_tunnel_mode=str(os.environ.get("CLOUDFLARED_TUNNEL_MODE", "quick") or "quick").strip().lower(),
         style_files=style_files,
         worker=worker,
         sources=sources,
