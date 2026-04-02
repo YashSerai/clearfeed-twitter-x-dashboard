@@ -137,6 +137,15 @@ class AppConfig:
             if self.provider_config_ready
             else "Add text and polish models for drafting."
         )
+        media_detail_parts: list[str] = []
+        if self.vision_enabled and self.vision_model_name:
+            media_detail_parts.append(f"Vision: {self.vision_model_name}")
+        else:
+            media_detail_parts.append("Vision: not configured")
+        if self.image_generation_enabled and self.ai_image_model:
+            media_detail_parts.append(f"Image: {self.ai_image_model}")
+        else:
+            media_detail_parts.append("Image: not configured")
         return {
             "provider": {
                 "ok": self.provider_config_ready,
@@ -149,14 +158,10 @@ class AppConfig:
                 "detail": drafting_detail,
             },
             "profiles": {"ok": True, "label": "Voice Profiles", "detail": "Templates ready."},
-            "vision": {
-                "ok": self.vision_enabled,
-                "label": "Vision",
-                "detail": (
-                    f"Vision model: {self.vision_model_name}"
-                    if self.vision_enabled
-                    else "Optional. Configure AI_VISION_MODEL for image-aware drafting."
-                ),
+            "media": {
+                "ok": self.vision_enabled and self.image_generation_enabled,
+                "label": "Image + Vision",
+                "detail": " | ".join(media_detail_parts),
             },
             "web": {
                 "ok": self.web_research_enabled,
@@ -165,15 +170,6 @@ class AppConfig:
                     "Grounded web research is available."
                     if self.web_research_enabled
                     else "Optional. Unavailable on this provider."
-                ),
-            },
-            "image_generation": {
-                "ok": self.image_generation_enabled,
-                "label": "Image Generation",
-                "detail": (
-                    f"Image model: {self.ai_image_model}"
-                    if self.image_generation_enabled
-                    else "Optional. Configure AI_IMAGE_MODEL to enable it."
                 ),
             },
             "session": {
@@ -185,6 +181,11 @@ class AppConfig:
                 "ok": self.sources_ready,
                 "label": "Discovery Sources",
                 "detail": f"{len(self.sources)} source(s) configured." if self.sources_ready else "Add at least one source.",
+            },
+            "telegram": {
+                "ok": self.telegram_enabled,
+                "label": "Telegram Mirror",
+                "detail": "Telegram mirroring is enabled." if self.telegram_enabled else "Optional. Currently off.",
             },
         }
 
