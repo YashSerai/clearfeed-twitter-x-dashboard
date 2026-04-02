@@ -186,11 +186,6 @@ class AppConfig:
                 "label": "Discovery Sources",
                 "detail": f"{len(self.sources)} source(s) configured." if self.sources_ready else "Add at least one source.",
             },
-            "telegram": {
-                "ok": self.telegram_enabled,
-                "label": "Telegram Mirror",
-                "detail": "Telegram mirroring is enabled." if self.telegram_enabled else "Optional. Currently off.",
-            },
         }
 
 
