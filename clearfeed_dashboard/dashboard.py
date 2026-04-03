@@ -330,7 +330,7 @@ def _latest_original_drafts(database_path: Path) -> list[sqlite3.Row]:
     return _query_rows(
         database_path,
         """
-        select d.id, d.draft_type, d.status, d.draft_text, d.updated_at, d.posted_tweet_id, d.image_prompt, d.image_path
+        select d.id, d.draft_type, d.status, d.draft_text, d.updated_at, d.posted_tweet_id, d.image_prompt, d.image_path, d.generation_notes
         from drafts d
         where d.candidate_id is null
         order by d.id desc
@@ -350,6 +350,10 @@ def _serialize_mini_draft(
     image_prompt = str(row["image_prompt"] or "").strip()
     image_path = str(row["image_path"] or "").strip()
     draft_text = str(row["draft_text"] or "")
+    try:
+        generation_notes = str(row["generation_notes"] or "")
+    except Exception:
+        generation_notes = ""
     return {
         "id": int(row["id"]),
         "draft_type": str(row["draft_type"] or ""),
@@ -369,6 +373,7 @@ def _serialize_mini_draft(
         "is_editable": status == "drafted",
         "char_count": len(draft_text),
         "draft_text_limit": draft_text_limit,
+        "generation_notes": generation_notes,
     }
 
 
@@ -451,6 +456,10 @@ def _mini_bootstrap_payload(
             "draft_text_limit": service.dashboard_draft_text_limit,
             "drafting_enabled": service.config.drafting_enabled,
             "image_generation_enabled": image_generation_enabled,
+            "original_post_options": service.config.worker.original_post_options,
+            "max_original_drafts_per_day": service.config.worker.max_original_drafts_per_day,
+            "originals_model": service.config.ai_originals_model,
+            "web_research_enabled": bool(service.drafting and service.drafting.supports_web_search()),
             "telegram_webapp_enabled": service.config.telegram_webapp_enabled,
             "public_base_url": service.config.normalized_public_base_url,
         },
@@ -815,6 +824,7 @@ def _render_mini_app() -> str:
         payload: null,
         activeView: focusView === 'originals' ? 'originals' : 'queue',
         busy: false,
+        refreshTimer: null,
       };
 
       const initHeaders = () => {
@@ -855,6 +865,20 @@ def _render_mini_app() -> str:
         flash.textContent = message;
         flash.style.display = 'block';
         flash.classList.toggle('error', isError);
+      };
+
+      const isEditing = () => {
+        const active = document.activeElement;
+        if (!active) {
+          return false;
+        }
+        if (active.tagName === 'TEXTAREA') {
+          return true;
+        }
+        if (active.tagName === 'INPUT') {
+          return true;
+        }
+        return false;
       };
 
       const request = async (path, options = {}) => {
@@ -1058,12 +1082,16 @@ def _render_mini_app() -> str:
 
       const renderOriginals = (payload) => {
         originalsView.innerHTML = '';
+        const batchCount = Number(payload.app.original_post_options || 0);
+        const dailyCap = Number(payload.app.max_original_drafts_per_day || 0);
+        const originalsModel = String(payload.app.originals_model || '');
+        const researchNote = payload.app.web_research_enabled ? 'with live web research' : 'from your local signal pool';
         const composer = document.createElement('section');
         composer.className = 'panel';
         composer.innerHTML = `
           <div class="section-label">Original Posts</div>
           <h2 style="margin:0 0 8px;">Generate standalone ideas</h2>
-          <div class="note">Use the same drafting stack to produce original post options from the recent signal pool.</div>
+          <div class="note">Generate up to ${batchCount || 1} longer standalone posts ${researchNote}. Daily cap: ${dailyCap || batchCount || 1}. ${originalsModel ? `Model: ${escapeHtml(originalsModel)}.` : ''}</div>
           <div style="margin-top:12px;">
             <input type="text" id="original-topic" placeholder="Optional topic, angle, or context">
             <div class="actions">
@@ -1086,6 +1114,7 @@ def _render_mini_app() -> str:
           renderDraftCard(draft, {
             parent: card,
             title: `Original Draft #${draft.id}`,
+            generationNotes: draft.generation_notes || '',
           });
           originalsView.appendChild(card);
         });
@@ -1119,26 +1148,55 @@ def _render_mini_app() -> str:
 
       const isMissingInitDataError = (message) => /Missing Telegram init data/i.test(String(message || ''));
 
-      const refresh = async (message = '') => {
+      const refresh = async (message = '', options = {}) => {
+        const silent = !!options.silent;
         if (!hasTelegramInitData) {
           renderLaunchHelp('Missing Telegram init data. Open this page from the Telegram Mini App inside Telegram.');
           setMessage('', false);
           return;
         }
-        renderLoading();
+        if (!silent) {
+          renderLoading();
+        }
         setBusy(false);
         try {
           const payload = await request(`/api/mini/bootstrap${window.location.search || ''}`);
           render(payload);
-          setMessage(message || '');
+          if (!silent) {
+            setMessage(message || '');
+          }
         } catch (error) {
           if (isMissingInitDataError(error.message)) {
             renderLaunchHelp(error.message);
             setMessage('', false);
             return;
           }
-          setMessage(error.message, true);
+          if (!silent) {
+            setMessage(error.message, true);
+          }
         }
+      };
+
+      const maybeAutoRefresh = async () => {
+        if (state.busy || !state.payload) {
+          return;
+        }
+        if (document.hidden) {
+          return;
+        }
+        if (isEditing()) {
+          return;
+        }
+        await refresh('', { silent: true });
+      };
+
+      const startAutoRefresh = () => {
+        if (state.refreshTimer) {
+          window.clearInterval(state.refreshTimer);
+        }
+        state.refreshTimer = window.setInterval(() => {
+          maybeAutoRefresh();
+        }, 15000);
       };
 
       document.addEventListener('click', async (event) => {
@@ -1242,6 +1300,23 @@ def _render_mini_app() -> str:
         }
       });
 
+      document.addEventListener('visibilitychange', () => {
+        if (!document.hidden) {
+          maybeAutoRefresh();
+        }
+      });
+
+      window.addEventListener('focus', () => {
+        maybeAutoRefresh();
+      });
+
+      if (webApp && webApp.onEvent) {
+        webApp.onEvent('viewportChanged', () => {
+          maybeAutoRefresh();
+        });
+      }
+
+      startAutoRefresh();
       refresh();
     })();
   </script>
@@ -1373,7 +1448,7 @@ def _render_dashboard(
     latest_original_drafts = _query_rows(
         database_path,
         """
-        select d.id, d.draft_type, d.status, d.draft_text, d.updated_at, d.posted_tweet_id, d.image_prompt, d.image_path
+        select d.id, d.draft_type, d.status, d.draft_text, d.updated_at, d.posted_tweet_id, d.image_prompt, d.image_path, d.generation_notes
         from drafts d
         where d.candidate_id is null
         order by d.id desc
@@ -2488,7 +2563,7 @@ def _render_dashboard(
       </div>
       <section class="card span-4 original-drafts-card">
         <h2>Create Original Drafts</h2>
-        <div class="section-note">Use this for standalone posts that are not tied to a tweet in the reply queue.</div>
+        <div class="section-note">Use this for standalone posts that are not tied to a tweet in the reply queue. Clearfeed now generates them in daily-ready batches and, when supported, grounds them with live web research.</div>
         <form method="post" action="/original" class="original-draft-form">
           <textarea name="topic" class="original-topic-input" placeholder="Optional topic, angle, or context for the post. Example: new OpenAI parameter changes and why they matter for builders."></textarea>
           <button class="ok" type="submit" data-busy-label="Generating original drafts..."{' disabled title="Configure the selected AI provider in .env to enable original drafting."' if not drafting_enabled else ''}>Generate Original Drafts</button>
@@ -3629,12 +3704,19 @@ def _original_draft_card(
     ]
     if row["image_path"]:
         note_bits.append("image attached")
+    generation_notes = str(row["generation_notes"] or "").strip()
+    notes_html = (
+        f'<div class="note" style="margin:10px 0 0;">{_escape(generation_notes).replace(chr(10), "<br>")}</div>'
+        if generation_notes
+        else ""
+    )
     return (
         f'<article class="original-card" id="draft-{row["id"]}">'
         '<div class="draft-inline-header">'
         f'<div><h3>Original Draft #{row["id"]}</h3><div class="draft-inline-note">{" | ".join(note_bits)}</div></div>'
         f'<span class="pill {_pill_class(row["status"])}">{_escape(_status_label(row["status"]))}</span>'
         '</div>'
+        f"{notes_html}"
         f"{_draft_text_editor(int(row['id']), row['draft_text'] or '', str(row['status'] or ''), draft_text_limit)}"
         f"{controls}"
         '</article>'

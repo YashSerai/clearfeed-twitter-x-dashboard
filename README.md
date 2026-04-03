@@ -30,6 +30,8 @@ The point is simple: tighter inputs, better drafting, and a workflow where the h
 - Adaptive Voice suggestions that improve `Voice.md` from your real decisions over time.
 - AI-assisted profile setup with questionnaire templates and prompt packs.
 - Editable drafts so you can replace or steer the AI instead of accepting whatever it generated.
+- Batch original-post drafting with suggested posting slots across the day.
+- Optional live web-grounded research for original-post batches on providers that support it.
 - Copy-first manual posting workflow.
 - Optional Telegram access through the tunneled Mini App.
 
@@ -97,6 +99,7 @@ If `.env` already exists, it updates provider-related keys in place rather than 
 
 Then:
 1. Fill in `.env`.
+   If you want stronger standalone posts than replies, set `AI_ORIGINALS_MODEL` to a premium model and tune `WORKER_ORIGINAL_POST_OPTIONS` / `WORKER_MAX_ORIGINAL_DRAFTS_PER_DAY`.
 2. Build `profiles/local/WhoAmI.md`.
 3. Build `profiles/local/Voice.md`.
 4. Review `profiles/local/Humanizer.md`.

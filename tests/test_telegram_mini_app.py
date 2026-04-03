@@ -29,6 +29,9 @@ class _FakeDrafting:
     def supports_vision(self) -> bool:
         return False
 
+    def supports_web_search(self) -> bool:
+        return False
+
     def draft_candidate_reply(
         self,
         candidate_payload: dict[str, object],
@@ -51,7 +54,14 @@ class _FakeDrafting:
         output_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.write_bytes(b"fake-image")
 
-    def generate_original_posts(self, topic: str, signals: list[dict[str, object]], count: int) -> list[DraftPayload]:
+    def generate_original_posts(
+        self,
+        topic: str,
+        signals: list[dict[str, object]],
+        count: int,
+        recent_original_drafts: list[str] | None = None,
+    ) -> list[DraftPayload]:
+        _ = recent_original_drafts
         return [
             DraftPayload(
                 draft_type="original",

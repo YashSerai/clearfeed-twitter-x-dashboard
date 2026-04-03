@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -67,6 +68,52 @@ Stronger reply:
 Why the stronger reply works:
 - It adds an edge case.
 - It disagrees productively instead of performing agreement.
+""".strip()
+
+VOICE_MD_BLUEPRINT = """
+Return a complete Markdown file for `Voice.md` using this structure and intent:
+
+# VOICE
+
+This is the active voice profile for short-form drafting.
+Use it with `WhoAmI.md` for factual grounding and `Humanizer.md` for the final pass.
+
+This version is optimized for substance, specificity, and strong in-feed writing.
+The goal is not to sound profound on every tweet.
+The goal is to post like a smart technical founder who actually has something to say.
+
+Required sections, in order:
+- `## Core Objective`
+- `## Identity To Draw From`
+- `## Substance Standard`
+- `## Context Fidelity Rule`
+- `## What Strong Posts Usually Do`
+- `## Topic Priorities`
+- `## House Style`
+- `## Platform-Aware Rules`
+- `## Writing Moves To Use More`
+- `## Writing Moves To Use Less`
+- `## Specificity Rules`
+- `## Continuity Rule`
+- `## Preferred Tone`
+- `## Pacing And Rhythm`
+- `## Openings That Fit`
+- `## Endings That Fit`
+- `## Lexicon`
+- `## Reply Rules`
+- `## Quality Bar`
+- `## Active Guardrails`
+
+Writing requirements:
+- Make the file operational, not descriptive fluff.
+- Use short paragraphs and bullet lists.
+- Encode anti-patterns explicitly, especially repeated worldview injection or topic drift.
+- Treat recurring house themes as optional lenses, not default answers, unless the evidence clearly says otherwise.
+- Keep the voice source-faithful: the file should help the model stay inside the topic of the source tweet before reaching for a broader thesis.
+- Prefer specificity, mechanisms, product or technical nouns, and practical implications over generic "thought leader" language.
+- Do not turn WhoAmI facts into automatic talking points.
+- Do not stuff the file with archive statistics or corpus-analysis language.
+- Preserve the existing `## Active Guardrails` block exactly.
 """.strip()
 
 
@@ -193,13 +240,16 @@ Reject drafts that do any of the following:
 - Sound like the user, not a corporate account.
 - The default is to sound like a sharp builder on X, not to self-introduce.
 - No em dashes.
+- Treat the voice packet as behavioral guidance, not as a bank of reusable slogans, closers, or worldview fragments.
 - Stay tightly anchored to the exact target post.
 - Use at least one concrete detail from the target tweet, thread, image, linked page, or user guidance when possible.
 - If Expanded context from linked page is present, treat it as primary grounding material.
 - If Live web research is available, use it to understand the broader situation around the linked page, launch, claim, or company before drafting.
 - If User drafting guidance is present, treat it as the steering brief unless it would make the reply inaccurate.
+- Do not import recurring house themes unless the target tweet, linked context, or user guidance clearly earns them.
 - If the post is thin, keep the reply light and specific instead of forcing a big thesis.
 - Prefer one sharp point over multiple weak points.
+- Prefer source-specific nouns, mechanisms, and tradeoffs over abstract manifesto language.
 - Do not default to praise.
 - Keep it concise enough for X, but do not compress so hard that the draft becomes generic.
 - For a direct reply, stay close to the claim and push the conversation forward by one step.
@@ -272,9 +322,59 @@ Rules:
             raise RuntimeError("Image generation is not available for the configured provider or model.")
         return self.provider.generate_image(self.config.ai_image_model, prompt, output_path)
 
-    def generate_original_posts(self, topic: str, signals: list[dict[str, Any]], count: int) -> list[DraftPayload]:
+    def build_originals_research_brief(self, topic: str, signals: list[dict[str, Any]]) -> dict[str, Any]:
+        if not self.supports_web_search():
+            return {}
+        prompt = f"""
+You are researching live public-web context before drafting original X posts.
+
+Current UTC timestamp:
+{datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")}
+
+Requested topic:
+{topic or "Use the strongest current AI, product, and builder signals"}
+
+Recent local signal pool:
+{json.dumps(signals, indent=2)}
+
+Task:
+- Use live web search to identify the most relevant current discussions, launches, claims, product shifts, or debates.
+- Prioritize topics that are active now, not generic evergreen talking points.
+- Bias toward AI, product, distribution, developer workflow, infra, and what operators or builders should notice.
+- Focus on angles that could lead to a strong original X post.
+- Keep the brief concise and practical.
+
+Return JSON only with keys:
+- summary
+- themes: array of objects with keys theme, why_now, evidence
+- opportunities: array of short strings
+- avoid: array of short strings
+"""
+        return self.provider.generate_json(
+            self.config.ai_text_model,
+            prompt,
+            temperature=0.35,
+            use_web_search=True,
+        )
+
+    def generate_original_posts(
+        self,
+        topic: str,
+        signals: list[dict[str, Any]],
+        count: int,
+        recent_original_drafts: list[str] | None = None,
+    ) -> list[DraftPayload]:
+        research_brief: dict[str, Any] = {}
+        if self.supports_web_search():
+            try:
+                research_brief = self.build_originals_research_brief(topic, signals)
+            except Exception:
+                research_brief = {}
         prompt = f"""
 You are drafting original X posts for the user.
+
+Current UTC timestamp:
+{datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")}
 
 Voice packet:
 {self.style_packet}
@@ -285,14 +385,36 @@ Requested topic:
 Recent signals:
 {json.dumps(signals, indent=2)}
 
+Recent original posts to avoid repeating:
+{json.dumps(recent_original_drafts or [], indent=2)}
+
+Live research brief:
+{json.dumps(research_brief, indent=2) if research_brief else "Not available"}
+
 Rules:
+- Use the voice packet as a constraint system, not as a phrase bank.
 - Use the current signal set, not generic timeless advice.
-- Focus on AI, builder workflow, product implications, or what the market is missing.
+- If the live research brief is available, use it to ground the drafts in what is happening right now.
+- Focus on AI, builder workflow, product implications, market structure, or what the current discourse is missing.
+- Do not let the whole batch collapse into the same recurring thesis or default closer.
 - Return exactly {count} options.
-- Mix formats and endings naturally across options.
+- Make the posts longer and more developed than a throwaway X one-liner, but never exceed 280 characters.
+- Aim for roughly 170 to 260 characters unless a shorter draft is clearly stronger.
+- Every option should do one valuable thing well: teach, sharpen, reframe, warn, predict, or name a practical implication.
+- Use specific nouns, product examples, company names, or market details when they materially improve the post.
+- Avoid generic "AI is changing everything" language, vague hype, or empty engagement bait.
+- Avoid repeating the recent original posts list.
+- Diversify the batch. Do not let all options use the same hook, rhythm, or ending pattern.
+- At least one option should feel more analytical, and at least one should feel more practical for builders or operators.
+- Suggest an image only when a simple explainer visual would materially help the post.
 - Return JSON array only with keys: text, rationale, image_prompt, image_reason.
 """
-        raw = self.provider.generate_json(self.config.ai_polish_model, prompt, temperature=0.85)
+        raw = self.provider.generate_json(
+            self.config.ai_originals_model,
+            prompt,
+            temperature=0.8,
+            use_web_search=False,
+        )
         results: list[DraftPayload] = []
         for item in raw:
             results.append(
@@ -332,8 +454,16 @@ Task:
 - Study what the user actually approved, rejected, and edited.
 - Use edits as the highest-signal feedback.
 - Update the Voice.md guidance so future drafts better match the user's real behavior.
+- Approved and edited drafts matter more than the current file when they disagree.
+- If the learning events show recurring drift, write direct anti-pattern rules that block that drift.
+- The file must help future drafts stay specific to the source topic instead of forcing the same worldview onto unrelated tweets.
 - Preserve the `## Active Guardrails` section from the current Voice.md exactly.
 - Revise only the sections above that guardrails block.
+- Do not produce a generic tone memo, archive report, or list of favorite words.
+- Return the full Voice.md in the blueprint below.
+
+Blueprint:
+{VOICE_MD_BLUEPRINT}
 
 Output:
 - Return JSON only.
@@ -376,9 +506,15 @@ Task:
 - Propose a stronger Voice.md that captures the user's real habits, tone, openings, patterns, and anti-patterns.
 - Do not turn WhoAmI facts into voice rules.
 - Do not rewrite Humanizer.md.
+- The file must make source fidelity explicit so future replies do not drag unrelated posts back to one favorite thesis.
+- If archive themes like memory, continuity, identity, or similar concepts appear, treat them as scoped lenses rather than universal closers unless the archive overwhelmingly proves otherwise.
 - Preserve the `## Active Guardrails` section from the current Voice.md exactly.
 - Revise only the sections above that guardrails block.
-- Be concrete and avoid generic “thought leader” language.
+- Be concrete and avoid generic "thought leader" language.
+- Return the full Voice.md in the blueprint below.
+
+Blueprint:
+{VOICE_MD_BLUEPRINT}
 
 Output:
 - Return JSON only.

@@ -14,6 +14,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode
+from zoneinfo import ZoneInfo
 
 from . import db
 from .archive_voice import import_archive
@@ -992,22 +993,33 @@ class XAgentService:
             }
             for row in signal_rows
         ]
+        recent_original_drafts = db.fetch_recent_original_draft_texts(
+            conn,
+            limit=max(self.config.worker.original_post_options * 2, 8),
+        )
         drafts = self.drafting.generate_original_posts(
             topic=topic,
             signals=signals,
             count=min(self.config.worker.original_post_options, remaining),
+            recent_original_drafts=recent_original_drafts,
         )
+        slot_labels = self._suggest_original_post_slot_labels(len(drafts))
         draft_ids: list[int] = []
-        for draft in drafts:
+        for index, draft in enumerate(drafts):
+            generation_note = self._build_original_generation_note(
+                topic=topic,
+                slot_label=slot_labels[index] if index < len(slot_labels) else "",
+            )
             draft_id = db.insert_draft(
                 conn,
                 candidate_id=None,
                 draft_type="original",
                 draft_text=draft.text,
                 rationale=draft.rationale,
-                model_name=self.config.ai_polish_model,
+                model_name=self.config.ai_originals_model,
                 image_prompt=draft.image_prompt,
                 image_reason=draft.image_reason,
+                generation_notes=generation_note,
             )
             draft_ids.append(draft_id)
             if notify_telegram and self.config.telegram_legacy_forwarding_enabled:
@@ -1024,6 +1036,54 @@ class XAgentService:
         raise RuntimeError(
             "Drafting is not configured. Run scripts/setup.ps1 and fill the selected AI provider settings in .env."
         )
+
+    def _suggest_original_post_slot_labels(self, count: int) -> list[str]:
+        if count <= 0:
+            return []
+        try:
+            local_tz = ZoneInfo(self.config.timezone)
+        except Exception:
+            local_tz = timezone.utc
+        now_local = datetime.now(timezone.utc).astimezone(local_tz)
+        day_start = now_local.replace(hour=9, minute=0, second=0, microsecond=0)
+        day_end = now_local.replace(hour=21, minute=0, second=0, microsecond=0)
+        first_slot = max(self._round_up_to_quarter_hour(now_local + timedelta(minutes=20)), day_start)
+        if first_slot >= day_end:
+            first_slot = self._round_up_to_quarter_hour(now_local + timedelta(minutes=45))
+            spacing = timedelta(minutes=75)
+        elif count == 1:
+            spacing = timedelta()
+        else:
+            total_minutes = max(int((day_end - first_slot).total_seconds() // 60), 0)
+            spacing = timedelta(minutes=max(total_minutes // max(count - 1, 1), 75))
+        return [
+            self._format_original_slot_label(first_slot + (spacing * index), index=index, total=count, today=now_local.date())
+            for index in range(count)
+        ]
+
+    def _build_original_generation_note(self, topic: str, slot_label: str) -> str | None:
+        parts: list[str] = []
+        normalized_topic = topic.strip()
+        if slot_label:
+            parts.append(slot_label)
+        if normalized_topic:
+            parts.append(f"Brief: {normalized_topic}")
+        return "\n".join(parts) if parts else None
+
+    def _round_up_to_quarter_hour(self, value: datetime) -> datetime:
+        rounded = value.replace(second=0, microsecond=0)
+        minute_remainder = rounded.minute % 15
+        if minute_remainder == 0:
+            return rounded
+        return rounded + timedelta(minutes=15 - minute_remainder)
+
+    def _format_original_slot_label(self, slot: datetime, *, index: int, total: int, today: Any) -> str:
+        time_label = slot.strftime("%I:%M %p").lstrip("0")
+        date_label = ""
+        if slot.date() != today:
+            date_label = f" on {slot.strftime('%b %d')}"
+        tz_label = slot.tzname() or self.config.timezone
+        return f"Suggested slot {index + 1}/{total}: {time_label}{date_label} {tz_label}"
 
     def _normalize_dashboard_draft_text(self, draft_text: str | None, required: bool = False) -> str | None:
         if draft_text is None:
@@ -1114,7 +1174,8 @@ class XAgentService:
         lines.append(draft["draft_text"])
         lines.append("")
         if draft["generation_notes"]:
-            lines.append(f"Brief: {draft['generation_notes']}")
+            lines.append("Notes:")
+            lines.extend(str(draft["generation_notes"]).splitlines())
             lines.append("")
         lines.append(f"Why: {draft['rationale']}")
         if draft["image_reason"]:

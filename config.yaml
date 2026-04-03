@@ -12,8 +12,8 @@ worker:
   article_expand_char_limit: 12000
   scrape_timeout_ms: 45000
   recent_signals_limit: 30
-  original_post_options: 1
-  max_original_drafts_per_day: 3
+  original_post_options: 5
+  max_original_drafts_per_day: 5
   default_image_mode: suggest_only
   homepage_scrape_limit: 60
   homepage_llm_pool_size: 24

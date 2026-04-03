@@ -63,6 +63,7 @@ class AppConfig:
     ai_provider: str
     ai_text_model: str
     ai_polish_model: str
+    ai_originals_model: str
     ai_vision_model: str | None
     ai_image_model: str | None
     google_cloud_project: str | None
@@ -162,7 +163,7 @@ class AppConfig:
             )
         )
         drafting_detail = (
-            f"Text: {self.ai_text_model} | Polish: {self.ai_polish_model}"
+            f"Text: {self.ai_text_model} | Polish: {self.ai_polish_model} | Originals: {self.ai_originals_model}"
             if self.provider_config_ready
             else "Add text and polish models for drafting."
         )
@@ -255,6 +256,18 @@ def load_config(root: str | Path | None = None) -> AppConfig:
         "WORKER_HOMEPAGE_MAX_ALERTS_PER_CYCLE",
         int(worker_cfg["homepage_max_alerts_per_cycle"]),
     )
+    worker_cfg["recent_signals_limit"] = _get_int(
+        "WORKER_RECENT_SIGNALS_LIMIT",
+        int(worker_cfg["recent_signals_limit"]),
+    )
+    worker_cfg["original_post_options"] = _get_int(
+        "WORKER_ORIGINAL_POST_OPTIONS",
+        int(worker_cfg["original_post_options"]),
+    )
+    worker_cfg["max_original_drafts_per_day"] = _get_int(
+        "WORKER_MAX_ORIGINAL_DRAFTS_PER_DAY",
+        int(worker_cfg["max_original_drafts_per_day"]),
+    )
     if int(worker_cfg["max_delay_minutes"]) < int(worker_cfg["min_delay_minutes"]):
         raise RuntimeError("WORKER_MAX_DELAY_MINUTES must be greater than or equal to WORKER_MIN_DELAY_MINUTES.")
 
@@ -312,6 +325,7 @@ def load_config(root: str | Path | None = None) -> AppConfig:
         raise RuntimeError("AI_PROVIDER must be `vertex` or `openai_compatible`.")
     ai_text_model = _optional_env("AI_TEXT_MODEL") or _optional_env("GEMINI_TEXT_MODEL") or ("gemini-3-flash-preview" if ai_provider == "vertex" else "")
     ai_polish_model = _optional_env("AI_POLISH_MODEL") or _optional_env("GEMINI_POLISH_MODEL") or ("gemini-3-flash-preview" if ai_provider == "vertex" else "")
+    ai_originals_model = _optional_env("AI_ORIGINALS_MODEL") or ai_polish_model or ai_text_model
     ai_vision_model = _optional_env("AI_VISION_MODEL")
     ai_image_model = _optional_env("AI_IMAGE_MODEL") or _optional_env("GEMINI_IMAGE_MODEL")
 
@@ -324,6 +338,7 @@ def load_config(root: str | Path | None = None) -> AppConfig:
         ai_provider=ai_provider,
         ai_text_model=ai_text_model,
         ai_polish_model=ai_polish_model,
+        ai_originals_model=ai_originals_model,
         ai_vision_model=ai_vision_model,
         ai_image_model=ai_image_model,
         google_cloud_project=_optional_env("GOOGLE_CLOUD_PROJECT"),

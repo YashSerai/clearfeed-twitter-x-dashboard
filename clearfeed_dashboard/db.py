@@ -794,6 +794,20 @@ def fetch_recent_posts_for_originals(conn: sqlite3.Connection, source_keys: list
     ).fetchall()
 
 
+def fetch_recent_original_draft_texts(conn: sqlite3.Connection, limit: int) -> list[str]:
+    rows = conn.execute(
+        """
+        SELECT draft_text
+        FROM drafts
+        WHERE draft_type = 'original'
+        ORDER BY id DESC
+        LIMIT ?
+        """,
+        (limit,),
+    ).fetchall()
+    return [str(row["draft_text"] or "").strip() for row in rows if str(row["draft_text"] or "").strip()]
+
+
 def count_original_drafts_today(conn: sqlite3.Connection) -> int:
     row = conn.execute(
         """

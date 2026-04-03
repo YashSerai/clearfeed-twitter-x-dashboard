@@ -123,9 +123,13 @@ class ConfigTests(unittest.TestCase):
             self._write_repo(root)
             os.environ["WORKER_MIN_DELAY_MINUTES"] = "22"
             os.environ["WORKER_MAX_DELAY_MINUTES"] = "41"
+            os.environ["WORKER_ORIGINAL_POST_OPTIONS"] = "5"
+            os.environ["WORKER_MAX_ORIGINAL_DRAFTS_PER_DAY"] = "7"
             config = load_config(root)
             self.assertEqual(config.worker.min_delay_minutes, 22)
             self.assertEqual(config.worker.max_delay_minutes, 41)
+            self.assertEqual(config.worker.original_post_options, 5)
+            self.assertEqual(config.worker.max_original_drafts_per_day, 7)
 
     def test_openai_compatible_provider_config(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -135,9 +139,11 @@ class ConfigTests(unittest.TestCase):
             os.environ["OPENAI_COMPAT_BASE_URL"] = "http://127.0.0.1:11434/v1"
             os.environ["AI_TEXT_MODEL"] = "llama3"
             os.environ["AI_POLISH_MODEL"] = "llama3"
+            os.environ["AI_ORIGINALS_MODEL"] = "llama3.3-70b"
             config = load_config(root)
             self.assertTrue(config.drafting_enabled)
             self.assertEqual(config.provider_label, "OpenAI-Compatible")
+            self.assertEqual(config.ai_originals_model, "llama3.3-70b")
             self.assertFalse(config.web_research_enabled)
             self.assertFalse(config.vision_enabled)
 
