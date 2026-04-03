@@ -77,12 +77,25 @@ So I built this fallback chain. Opus, Sonnet, GPT-4.1, Ollama. Bulletproof right
 
 Fix: Start with "So", "Wait", "Ok so". Use "..." for trailing thoughts. Use questions when they sound natural.
 
-6. Setup Then Reveal on Every Tweet
+6. Abstract Thesis Openers
+The tell: The tweet opens with a polished thesis line like "The real win here is..." or "The key insight is..." before it says anything concrete. This is a very common AI move because it sounds smart fast, but real people usually lead with the thing they saw, built, or noticed.
+
+AI pattern:
+
+The real win here is the environment. Giving the agent a bash-based VFS and standard CLI tools turns a fuzzy architectural prompt into a series of deterministic search and verify steps.
+
+Human version:
+
+What actually matters is the environment. Give the agent a bash VFS and normal CLI tools and the whole thing gets way less magical. It's not "knowing" the implementation out of distribution. It's just searching, checking constraints, and iterating in real time.
+
+Fix: Watch for canned opener phrases like "The real win here is", "The key insight is", "What matters most is", "The interesting part is". Rewrite them into a more direct opening, or start with the concrete observation first. Do not let every tweet sound like it is introducing a thesis statement.
+
+7. Setup Then Reveal on Every Tweet
 The tell: Every tweet withholds the interesting part and then reveals it. Real humans sometimes lead with the surprising bit.
 
 Fix: Sometimes lead with the surprise. Sometimes bury it. Vary the information architecture.
 
-7. Hashtag Placement
+8. Hashtag Placement
 The tell: Hashtags appended as a clean block are acceptable. The bigger tell is using generic tags instead of real community tags.
 
 Rules:
@@ -92,7 +105,7 @@ Community and niche tags beat generic volume tags
 Always include any branded or series hashtags the author explicitly requested
 Put hashtags at the end with breathing room
 
-8. Numbers That Sound Too Clean
+9. Numbers That Sound Too Clean
 The tell: "Achieved an 86% reduction" reads like a press release. "Cut it by like 86%" reads like a person.
 
 Fix: Lead with the concrete number, then give the percentage if it helps. Add a reaction when it feels natural.
