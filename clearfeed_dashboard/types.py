@@ -34,7 +34,11 @@ class WorkerSettings:
     homepage_scrape_limit: int
     homepage_llm_pool_size: int
     homepage_max_alerts_per_cycle: int
+    homepage_max_opportunistic_alerts_per_cycle: int
     author_signal_lookback_hours: int
+    focus_keywords: list[str]
+    secondary_focus_keywords: list[str]
+    deprioritize_keywords: list[str]
     voice_review_enabled: bool
     voice_review_interval_hours: int
     voice_review_min_examples: int

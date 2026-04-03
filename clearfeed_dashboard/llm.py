@@ -142,10 +142,12 @@ Voice packet:
 {self.style_packet}
 
 Rules:
-- Prefer fresh posts with real implications for builders, AI products, APIs, launches, or contrarian technical takes.
-- If the source is the home timeline, prioritize tweets that feel early but already show traction: velocity, healthy engagement, second-degree social proof, or obvious launch energy.
-- Reward strong breakout posts from accounts outside the curated lists when there is still a concrete reply angle.
+- Prefer fresh posts with real implications for builders, AI products, APIs, launches, devtools, startup/product operators, or contrarian technical takes.
+- Relevance outranks raw velocity. Strong niche fit to tech/AI/builder/product topics should beat generic viral discourse.
+- If the source is the home timeline, prioritize tweets that feel early but already show traction: velocity, healthy engagement, second-degree social proof, or obvious launch energy, but only when they still fit the niche.
+- Reward strong breakout posts from accounts outside the curated lists when there is still a concrete reply angle and the post is clearly adjacent to the niche.
 - Prefer posts where a reply or quote reply can add a concrete angle.
+- Treat politics, geopolitics, or culture-war discourse as opportunistic only. Usually mark those as watch unless they are directly tied to tech, AI, policy affecting builders, or the upside is exceptional.
 - Avoid generic hype, pure memes, or crowded mega-account threads unless the angle is genuinely sharp.
 - Recommended action must be one of: reply, quote_reply, watch.
 - Return JSON array only.

@@ -18,7 +18,88 @@ worker:
   homepage_scrape_limit: 60
   homepage_llm_pool_size: 24
   homepage_max_alerts_per_cycle: 2
+  homepage_max_opportunistic_alerts_per_cycle: 1
   author_signal_lookback_hours: 72
+  focus_keywords:
+    - ai
+    - agent
+    - agents
+    - llm
+    - model
+    - models
+    - api
+    - sdk
+    - benchmark
+    - open source
+    - developer
+    - developers
+    - devtool
+    - coding
+    - code
+    - startup
+    - founder
+    - builder
+    - builders
+    - product
+    - launch
+    - released
+    - shipping
+    - workflow
+    - automation
+    - inference
+    - evals
+    - github
+    - copilot
+    - video
+    - local
+    - privacy
+    - ocr
+    - bug
+    - bugs
+    - source code
+    - debugging
+    - search
+    - database
+    - infra
+  secondary_focus_keywords:
+    - growth
+    - distribution
+    - monetization
+    - saas
+    - enterprise
+    - creator
+    - creators
+    - pricing
+    - adoption
+    - ux
+    - productivity
+    - community
+    - cost
+    - costs
+    - price
+    - prices
+  deprioritize_keywords:
+    - election
+    - elections
+    - senate
+    - congress
+    - parliament
+    - republican
+    - republicans
+    - democrat
+    - democrats
+    - trump
+    - biden
+    - liberal
+    - conservative
+    - tariff
+    - tariffs
+    - minister
+    - president
+    - prime minister
+    - ceasefire
+    - border
+    - nato
   voice_review_enabled: true
   voice_review_interval_hours: 24
   voice_review_min_examples: 6

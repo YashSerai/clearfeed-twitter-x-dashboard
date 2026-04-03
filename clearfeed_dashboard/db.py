@@ -75,8 +75,10 @@ def bootstrap(conn: sqlite3.Connection) -> None:
             heuristic_score REAL NOT NULL,
             llm_score REAL NOT NULL DEFAULT 0,
             total_score REAL NOT NULL,
+            opportunity_bucket TEXT NOT NULL DEFAULT 'core',
             recommended_action TEXT NOT NULL,
             why TEXT NOT NULL,
+            score_json TEXT,
             alert_message_id INTEGER,
             alert_sent_at TEXT,
             last_updated_at TEXT NOT NULL,
@@ -198,6 +200,11 @@ def bootstrap(conn: sqlite3.Connection) -> None:
         conn.execute("UPDATE voice_review_proposals SET proposal_type = 'learning' WHERE proposal_type IS NULL OR proposal_type = ''")
     if "source_import_id" not in proposal_columns:
         conn.execute("ALTER TABLE voice_review_proposals ADD COLUMN source_import_id INTEGER")
+    candidate_columns = {str(row["name"]) for row in conn.execute("PRAGMA table_info(candidates)").fetchall()}
+    if "opportunity_bucket" not in candidate_columns:
+        conn.execute("ALTER TABLE candidates ADD COLUMN opportunity_bucket TEXT NOT NULL DEFAULT 'core'")
+    if "score_json" not in candidate_columns:
+        conn.execute("ALTER TABLE candidates ADD COLUMN score_json TEXT")
 
 
 def start_run(conn: sqlite3.Connection) -> int:
@@ -274,23 +281,38 @@ def upsert_candidate(
     heuristic_score: float,
     llm_score: float,
     total_score: float,
+    opportunity_bucket: str,
     recommended_action: str,
     why: str,
+    score_payload: dict[str, Any] | None = None,
 ) -> int:
     conn.execute(
         """
         INSERT INTO candidates(
-            tweet_id, source_key, heuristic_score, llm_score, total_score, recommended_action, why, last_updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            tweet_id, source_key, heuristic_score, llm_score, total_score, opportunity_bucket, recommended_action, why, score_json, last_updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(tweet_id) DO UPDATE SET
             heuristic_score=excluded.heuristic_score,
             llm_score=excluded.llm_score,
             total_score=excluded.total_score,
+            opportunity_bucket=excluded.opportunity_bucket,
             recommended_action=excluded.recommended_action,
             why=excluded.why,
+            score_json=excluded.score_json,
             last_updated_at=excluded.last_updated_at
         """,
-        (tweet_id, source_key, heuristic_score, llm_score, total_score, recommended_action, why, utc_now_iso()),
+        (
+            tweet_id,
+            source_key,
+            heuristic_score,
+            llm_score,
+            total_score,
+            opportunity_bucket,
+            recommended_action,
+            why,
+            json.dumps(score_payload or {}),
+            utc_now_iso(),
+        ),
     )
     row = conn.execute("SELECT id FROM candidates WHERE tweet_id = ?", (tweet_id,)).fetchone()
     return int(row["id"])

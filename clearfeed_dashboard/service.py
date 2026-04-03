@@ -573,7 +573,12 @@ class XAgentService:
                     source = source_map[post.source_key]
                     if age_minutes(post.posted_at) > self._max_age_minutes_for_source(source):
                         continue
-                    breakdown = score_breakdown(post, source, author_stats=author_stats.get(post.author_handle.lower(), {}))
+                    breakdown = score_breakdown(
+                        post,
+                        source,
+                        self.config.worker,
+                        author_stats=author_stats.get(post.author_handle.lower(), {}),
+                    )
                     score = float(breakdown["score"])
                     if score < self._min_heuristic_threshold(source.type):
                         continue
@@ -593,6 +598,11 @@ class XAgentService:
                             "age_minutes": breakdown["age_minutes"],
                             "score_summary": breakdown["summary"],
                             "score_tags": breakdown["tags"],
+                            "topic_relevance": breakdown["topic_relevance"],
+                            "creator_fit": breakdown["creator_fit"],
+                            "niche_fit": breakdown["niche_fit"],
+                            "opportunity_bucket": breakdown["opportunity_bucket"],
+                            "off_topic_penalty": breakdown["off_topic_penalty"],
                             "social_context": post.raw.get("social_context"),
                             "heuristic_score": score,
                         }
@@ -621,7 +631,11 @@ class XAgentService:
                     why = str(llm.get("why") or item["score_summary"] or f"Fresh {item['source_label']} signal with reply surface.")
                     action = str(llm.get("recommended_action") or item["preferred_action"])
                     action_bonus = 10.0 if action in {"reply", "quote_reply"} else -5.0
-                    total_score = round(item["heuristic_score"] * 0.6 + llm_score * 0.4 + action_bonus, 2)
+                    bucket_bonus = {"core": 8.0, "adjacent": 2.0, "opportunistic": -12.0}.get(
+                        item["opportunity_bucket"],
+                        0.0,
+                    )
+                    total_score = round(item["heuristic_score"] * 0.6 + llm_score * 0.4 + action_bonus + bucket_bonus, 2)
                     if total_score < self._min_total_threshold(item["source_type"]):
                         continue
                     db.upsert_candidate(
@@ -631,8 +645,20 @@ class XAgentService:
                         heuristic_score=item["heuristic_score"],
                         llm_score=llm_score,
                         total_score=total_score,
+                        opportunity_bucket=item["opportunity_bucket"],
                         recommended_action=action,
                         why=why,
+                        score_payload={
+                            "heuristic_score": item["heuristic_score"],
+                            "llm_score": llm_score,
+                            "total_score": total_score,
+                            "topic_relevance": item["topic_relevance"],
+                            "creator_fit": item["creator_fit"],
+                            "niche_fit": item["niche_fit"],
+                            "off_topic_penalty": item["off_topic_penalty"],
+                            "tags": item["score_tags"],
+                            "source_type": item["source_type"],
+                        },
                     )
 
                 if self.config.telegram_legacy_forwarding_enabled:
@@ -706,12 +732,20 @@ class XAgentService:
     def _select_candidates_for_alerts(self, rows: list[sqlite3.Row]) -> list[sqlite3.Row]:
         selected: list[sqlite3.Row] = []
         home_selected = 0
+        opportunistic_home_selected = 0
         for row in rows:
             if len(selected) >= self.config.worker.max_candidates_per_cycle:
                 break
             if row["source_key"] == "home_timeline":
                 if home_selected >= self.config.worker.homepage_max_alerts_per_cycle:
                     continue
+                if row["opportunity_bucket"] == "opportunistic":
+                    if (
+                        opportunistic_home_selected
+                        >= self.config.worker.homepage_max_opportunistic_alerts_per_cycle
+                    ):
+                        continue
+                    opportunistic_home_selected += 1
                 home_selected += 1
             selected.append(row)
         return selected
@@ -1192,6 +1226,7 @@ class XAgentService:
             f"Candidate #{row['id']} | {row['source_key']}\n"
             f"@{row['author_handle']} ({row['author_name']})\n"
             f"Age: {human_age(_parse_candidate_posted_at(row['posted_at']))}\n"
+            f"Lane: {row['opportunity_bucket']}\n"
             f"Action: {row['recommended_action']}\n"
             f"Score: {row['total_score']:.1f}\n"
             f"Signal: {row['why']}\n"
