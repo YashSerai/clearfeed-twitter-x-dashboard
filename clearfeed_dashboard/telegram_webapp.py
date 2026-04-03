@@ -37,7 +37,9 @@ def validate_init_data(
     now: int | None = None,
 ) -> TelegramWebAppSession:
     if not init_data.strip():
-        raise TelegramWebAppAuthError("Missing Telegram init data.")
+        raise TelegramWebAppAuthError(
+            "Missing Telegram init data. Open Clearfeed from the Telegram Mini App button inside Telegram, not from a normal browser tab."
+        )
     if not bot_token.strip():
         raise TelegramWebAppAuthError("Telegram bot token is not configured.")
 

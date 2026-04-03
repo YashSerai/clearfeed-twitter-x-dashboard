@@ -507,110 +507,267 @@ def _render_mini_app() -> str:
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Clearfeed Mini App</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <style>
     :root {
-      --bg: #0b1118;
-      --panel: #13202c;
-      --panel-2: #0f1a24;
-      --text: #edf4fb;
-      --muted: #93a7bc;
-      --accent: #7ee0ff;
-      --ok: #34d399;
-      --warn: #f7c75f;
-      --bad: #fb7185;
-      --border: #244056;
+      --bg: #071019;
+      --bg-2: #0b1722;
+      --panel: rgba(15, 29, 43, 0.9);
+      --panel-strong: rgba(9, 20, 32, 0.96);
+      --card: rgba(12, 25, 38, 0.9);
+      --card-edge: rgba(158, 199, 229, 0.14);
+      --text: #ecf6ff;
+      --muted: #92a8bc;
+      --muted-2: #6f8699;
+      --accent: #69dbff;
+      --accent-2: #28b9ff;
+      --ok: #2fd4a7;
+      --warn: #f2c56c;
+      --bad: #fb7d96;
+      --shadow: 0 20px 50px rgba(0, 0, 0, 0.28);
+      --radius-xl: 24px;
+      --radius-lg: 18px;
+      --radius-md: 14px;
     }
     * { box-sizing: border-box; }
+    html { color-scheme: dark; }
     body {
       margin: 0;
-      background:
-        radial-gradient(circle at top left, rgba(126,224,255,.16) 0%, transparent 28%),
-        linear-gradient(180deg, #081018 0%, var(--bg) 46%, #060b10 100%);
       color: var(--text);
       font-family: "Aptos", "Segoe UI Variable Text", "Segoe UI", sans-serif;
+      background:
+        radial-gradient(circle at top left, rgba(105, 219, 255, 0.22) 0%, transparent 24%),
+        radial-gradient(circle at top right, rgba(47, 212, 167, 0.14) 0%, transparent 20%),
+        linear-gradient(180deg, #08131c 0%, #071019 48%, #050b11 100%);
+      min-height: 100vh;
     }
-    .shell { max-width: 860px; margin: 0 auto; padding: 18px 14px 40px; }
-    .hero, .panel, .card {
-      border: 1px solid var(--border);
-      background: linear-gradient(180deg, rgba(19,32,44,.95), rgba(15,26,36,.96));
-      border-radius: 20px;
-      box-shadow: 0 18px 44px rgba(0,0,0,.22);
+    a { color: var(--accent); text-decoration: none; }
+    button, textarea, input { font: inherit; }
+    button {
+      cursor: pointer;
+      transition: transform .14s ease, border-color .14s ease, background .14s ease, opacity .14s ease;
     }
-    .hero { padding: 18px; margin-bottom: 14px; }
-    .hero h1 { margin: 0 0 8px; font-size: 28px; letter-spacing: -.03em; }
-    .hero p, .note, .meta, .empty, .subtle { color: var(--muted); }
-    .row { display: flex; gap: 10px; flex-wrap: wrap; }
+    button:hover:not(:disabled) { transform: translateY(-1px); }
+    button:disabled { cursor: not-allowed; opacity: .58; }
+    .shell { max-width: 940px; margin: 0 auto; padding: 20px 14px 44px; }
+    .hero, .panel, .card, .stat {
+      border: 1px solid var(--card-edge);
+      background: linear-gradient(180deg, rgba(17, 31, 45, 0.98), rgba(9, 20, 31, 0.98));
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(16px);
+    }
+    .hero {
+      position: relative;
+      overflow: hidden;
+      padding: 22px;
+      border-radius: var(--radius-xl);
+      margin-bottom: 14px;
+    }
+    .hero::before {
+      content: "";
+      position: absolute;
+      inset: auto -8% -18% auto;
+      width: 220px;
+      height: 220px;
+      background: radial-gradient(circle, rgba(105, 219, 255, 0.18) 0%, transparent 65%);
+      pointer-events: none;
+    }
+    .hero-grid {
+      display: grid;
+      gap: 14px;
+      grid-template-columns: minmax(0, 1.5fr) minmax(240px, 1fr);
+    }
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 10px;
+      padding: 7px 11px;
+      border-radius: 999px;
+      border: 1px solid rgba(105, 219, 255, 0.22);
+      background: rgba(105, 219, 255, 0.08);
+      color: #b8ecfb;
+      font-size: 11px;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+    }
+    .hero h1 { margin: 0 0 8px; font-size: 34px; line-height: 1; letter-spacing: -.04em; }
+    .hero-copy { max-width: 520px; color: var(--muted); margin: 0; font-size: 15px; line-height: 1.6; }
+    .worker-meta { display: flex; flex-wrap: wrap; gap: 9px; margin-top: 16px; }
     .pill {
       display: inline-flex; align-items: center; gap: 6px;
-      padding: 7px 11px; border-radius: 999px;
-      border: 1px solid rgba(255,255,255,.08); background: rgba(255,255,255,.04);
-      font-size: 12px;
+      padding: 8px 12px; border-radius: 999px;
+      border: 1px solid rgba(255,255,255,.08); background: rgba(255,255,255,.05);
+      font-size: 12px; line-height: 1;
     }
-    .tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 14px 0; }
-    .tabs button, button, textarea, input {
-      font: inherit;
+    .hero-stats {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+      align-self: stretch;
     }
-    .tabs button, .actions button {
-      border: 1px solid var(--border);
-      background: rgba(255,255,255,.04);
+    .stat { border-radius: 18px; padding: 14px 14px 12px; min-height: 96px; }
+    .stat-label { color: var(--muted-2); font-size: 11px; letter-spacing: .12em; text-transform: uppercase; }
+    .stat-value { margin-top: 12px; font-size: 28px; font-weight: 700; letter-spacing: -.04em; }
+    .stat-subtle { margin-top: 8px; color: var(--muted); font-size: 12px; line-height: 1.45; }
+    .tabs {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 14px 0; padding: 6px;
+      border-radius: 18px; border: 1px solid rgba(255,255,255,.06); background: rgba(255,255,255,.04);
+      position: sticky; top: 0; z-index: 5; backdrop-filter: blur(14px);
+    }
+    .tabs button {
+      border: 1px solid transparent; background: transparent; color: var(--muted);
+      border-radius: 14px; padding: 12px 14px; font-weight: 600;
+    }
+    .tabs button.active {
       color: var(--text);
-      border-radius: 14px;
-      padding: 11px 12px;
+      border-color: rgba(105,219,255,.34);
+      background: linear-gradient(180deg, rgba(105,219,255,.16), rgba(40,185,255,.08));
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.06);
     }
-    .tabs button.active { background: rgba(126,224,255,.15); border-color: rgba(126,224,255,.5); }
     .stack { display: grid; gap: 12px; }
-    .card { padding: 14px; }
-    .card h2, .card h3 { margin: 0 0 8px; }
-    .tweet { font-size: 15px; line-height: 1.5; white-space: pre-wrap; }
+    .panel, .card { border-radius: var(--radius-lg); }
+    .panel { padding: 16px; }
+    .card { padding: 16px; position: relative; overflow: hidden; }
+    .card::after {
+      content: ""; position: absolute; inset: auto auto -60px -60px; width: 140px; height: 140px;
+      background: radial-gradient(circle, rgba(105,219,255,.08) 0%, transparent 70%); pointer-events: none;
+    }
+    .candidate-top, .draft-head { display: flex; gap: 12px; justify-content: space-between; align-items: flex-start; }
+    .candidate-title { margin: 10px 0 5px; font-size: 22px; letter-spacing: -.03em; }
+    .candidate-byline, .meta, .note, .subtle, .empty, .help-copy { color: var(--muted); }
+    .candidate-byline, .meta, .note, .subtle { font-size: 13px; line-height: 1.55; }
+    .score-badge {
+      min-width: 72px; padding: 10px 12px; border-radius: 18px; text-align: center;
+      border: 1px solid rgba(105,219,255,.28);
+      background: linear-gradient(180deg, rgba(105,219,255,.16), rgba(40,185,255,.06));
+    }
+    .score-badge strong { display: block; font-size: 22px; letter-spacing: -.04em; }
+    .score-badge span { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .12em; }
+    .tweet-shell {
+      margin-top: 14px; padding: 14px; border-radius: 18px; border: 1px solid rgba(255,255,255,.06);
+      background: linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.02));
+    }
+    .tweet { margin: 0; font-size: 15px; line-height: 1.62; white-space: pre-wrap; }
+    .insight { margin-top: 12px; padding-left: 12px; border-left: 3px solid rgba(105,219,255,.4); }
+    .meta-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
     textarea, input {
       width: 100%;
-      border-radius: 14px;
-      border: 1px solid var(--border);
-      background: rgba(6,11,16,.55);
+      border-radius: 16px;
+      border: 1px solid rgba(158,199,229,.16);
+      background: rgba(5,11,17,.52);
       color: var(--text);
-      padding: 12px;
-      min-height: 92px;
+      padding: 13px 14px;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.03);
+    }
+    textarea { min-height: 104px; resize: vertical; line-height: 1.55; }
+    textarea[readonly] { color: #dbeaf6; }
+    textarea:focus, input:focus {
+      outline: none; border-color: rgba(105,219,255,.48); box-shadow: 0 0 0 3px rgba(105,219,255,.08);
     }
     input { min-height: 0; }
-    .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
-    .actions button.ok { background: rgba(52,211,153,.14); }
-    .actions button.bad { background: rgba(251,113,133,.14); }
+    .char-row {
+      display: flex; justify-content: space-between; gap: 12px; margin-top: 8px; color: var(--muted); font-size: 12px;
+    }
+    .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+    .actions button {
+      border: 1px solid rgba(158,199,229,.14); background: rgba(255,255,255,.04); color: var(--text);
+      padding: 11px 13px; border-radius: 14px; font-weight: 600;
+    }
+    .actions button.ok { border-color: rgba(47,212,167,.2); background: rgba(47,212,167,.12); }
+    .actions button.bad { border-color: rgba(251,125,150,.22); background: rgba(251,125,150,.12); }
     .actions button.ghost { background: rgba(255,255,255,.02); }
-    .actions button:disabled { opacity: .6; }
-    .draft-box { margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,.08); }
-    .draft-head { display: flex; justify-content: space-between; gap: 10px; align-items: start; }
+    .draft-box { margin-top: 14px; padding-top: 14px; border-top: 1px solid rgba(255,255,255,.08); }
+    .section-label {
+      margin-bottom: 8px; color: var(--muted-2); font-size: 11px; letter-spacing: .12em; text-transform: uppercase;
+    }
+    .subcard {
+      margin-top: 14px; padding: 14px; border-radius: 16px; border: 1px solid rgba(255,255,255,.06);
+      background: linear-gradient(180deg, rgba(255,255,255,.04), rgba(255,255,255,.02));
+    }
     .message {
       margin: 0 0 12px;
-      padding: 12px 14px;
-      border-radius: 14px;
-      border: 1px solid rgba(126,224,255,.25);
-      background: rgba(126,224,255,.1);
+      padding: 14px 16px;
+      border-radius: 16px;
+      border: 1px solid rgba(105,219,255,.24);
+      background: rgba(105,219,255,.1);
       display: none;
+      line-height: 1.5;
     }
     .message.error {
-      border-color: rgba(251,113,133,.35);
-      background: rgba(251,113,133,.12);
+      border-color: rgba(251,125,150,.35);
+      background: rgba(251,125,150,.12);
     }
-    .empty {
-      padding: 18px;
-      text-align: center;
-      border: 1px dashed rgba(255,255,255,.14);
-      border-radius: 16px;
+    .empty, .help-card {
+      padding: 20px; text-align: center; border: 1px dashed rgba(158,199,229,.18); border-radius: 18px; background: rgba(255,255,255,.02);
     }
-    .footer-space { height: 22px; }
+    .help-card { text-align: left; padding: 18px; }
+    .help-card h2 { margin: 0 0 10px; font-size: 24px; letter-spacing: -.03em; }
+    .help-grid {
+      display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 14px;
+    }
+    .help-step {
+      padding: 14px; border-radius: 16px; background: rgba(255,255,255,.03); border: 1px solid rgba(255,255,255,.05);
+    }
+    .help-step strong {
+      display: block; margin-bottom: 6px; font-size: 13px; letter-spacing: .08em; text-transform: uppercase; color: #c8ebf8;
+    }
+    .loading { display: grid; gap: 10px; }
+    .skeleton {
+      height: 108px; border-radius: 18px; border: 1px solid rgba(255,255,255,.05);
+      background: linear-gradient(110deg, rgba(255,255,255,.04) 8%, rgba(255,255,255,.09) 18%, rgba(255,255,255,.04) 33%);
+      background-size: 220% 100%; animation: shimmer 1.2s linear infinite;
+    }
+    .focus-ring { box-shadow: 0 0 0 1px rgba(105,219,255,.36), 0 0 0 6px rgba(105,219,255,.08), var(--shadow); }
+    .footer-space { height: 28px; }
+    @keyframes shimmer {
+      0% { background-position: 200% 0; }
+      100% { background-position: -200% 0; }
+    }
+    @media (max-width: 760px) {
+      .hero-grid { grid-template-columns: 1fr; }
+      .hero h1 { font-size: 30px; }
+      .hero-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .help-grid { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 520px) {
+      .shell { padding: 14px 12px 34px; }
+      .hero, .panel, .card, .stat { border-radius: 20px; }
+      .hero-stats { grid-template-columns: 1fr; }
+      .candidate-top, .draft-head { flex-direction: column; }
+      .score-badge { width: 100%; text-align: left; }
+      .tabs { position: static; }
+    }
   </style>
 </head>
 <body>
   <div class="shell">
     <section class="hero">
-      <div class="row" style="justify-content:space-between;align-items:flex-start;">
+      <div class="hero-grid">
         <div>
-          <div class="subtle" style="font-size:12px;text-transform:uppercase;letter-spacing:.12em;">Telegram Mini App</div>
+          <div class="eyebrow">Telegram Mini App</div>
           <h1>Clearfeed</h1>
-          <p>Review the queue, steer drafts with a brief, edit replies, and mark work complete without leaving Telegram.</p>
+          <p class="hero-copy">Review the queue, steer the next draft with a brief, polish the copy, and mark work finished from the same workflow you use on desktop.</p>
+          <div class="worker-meta" id="worker-meta"></div>
+        </div>
+        <div class="hero-stats">
+          <div class="stat">
+            <div class="stat-label">Queue</div>
+            <div class="stat-value" id="stat-queue">--</div>
+            <div class="stat-subtle" id="stat-queue-note">Waiting for live data</div>
+          </div>
+          <div class="stat">
+            <div class="stat-label">Drafts</div>
+            <div class="stat-value" id="stat-drafts">--</div>
+            <div class="stat-subtle" id="stat-drafts-note">Reply and original drafts</div>
+          </div>
+          <div class="stat">
+            <div class="stat-label">Status</div>
+            <div class="stat-value" id="stat-status">--</div>
+            <div class="stat-subtle" id="stat-status-note">Mini App session</div>
+          </div>
         </div>
       </div>
-      <div class="row" id="worker-meta"></div>
     </section>
     <div id="flash" class="message"></div>
     <div class="tabs">
@@ -629,29 +786,63 @@ def _render_mini_app() -> str:
       const tabQueue = document.getElementById('tab-queue');
       const tabOriginals = document.getElementById('tab-originals');
       const workerMeta = document.getElementById('worker-meta');
+      const statQueue = document.getElementById('stat-queue');
+      const statDrafts = document.getElementById('stat-drafts');
+      const statStatus = document.getElementById('stat-status');
+      const statQueueNote = document.getElementById('stat-queue-note');
+      const statDraftsNote = document.getElementById('stat-drafts-note');
+      const statStatusNote = document.getElementById('stat-status-note');
       const search = new URLSearchParams(window.location.search);
       const focusCandidateId = search.get('candidate_id');
       const focusDraftId = search.get('draft_id');
       const focusView = search.get('view') || 'queue';
       const webApp = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
+      const hasTelegramInitData = !!(webApp && webApp.initData);
       if (webApp) {
         webApp.ready();
         if (webApp.expand) {
           webApp.expand();
+        }
+        if (webApp.setHeaderColor) {
+          webApp.setHeaderColor('#0b1722');
+        }
+        if (webApp.setBackgroundColor) {
+          webApp.setBackgroundColor('#071019');
         }
       }
 
       const state = {
         payload: null,
         activeView: focusView === 'originals' ? 'originals' : 'queue',
+        busy: false,
       };
 
       const initHeaders = () => {
         const headers = { 'Content-Type': 'application/json' };
-        if (webApp && webApp.initData) {
+        if (hasTelegramInitData) {
           headers['X-Telegram-Init-Data'] = webApp.initData;
         }
         return headers;
+      };
+
+      const setBusy = (busy, label = 'Working...') => {
+        state.busy = busy;
+        document.querySelectorAll('button').forEach((button) => {
+          if (button.id === 'tab-queue' || button.id === 'tab-originals') {
+            return;
+          }
+          button.disabled = busy;
+        });
+        if (webApp && webApp.MainButton) {
+          if (busy) {
+            webApp.MainButton.setText(label);
+            webApp.MainButton.showProgress(false);
+            webApp.MainButton.show();
+          } else {
+            webApp.MainButton.hideProgress();
+            webApp.MainButton.hide();
+          }
+        }
       };
 
       const setMessage = (message, isError = false) => {
@@ -695,12 +886,25 @@ def _render_mini_app() -> str:
         }
       };
 
+      const updateTopStats = (payload) => {
+        statQueue.textContent = String(payload.queue.length);
+        statQueueNote.textContent = payload.queue.length ? 'Candidates waiting now' : 'Queue is currently clear';
+
+        const draftedCandidates = payload.queue.filter((candidate) => candidate.draft).length;
+        const totalDrafts = draftedCandidates + payload.original_drafts.length;
+        statDrafts.textContent = String(totalDrafts);
+        statDraftsNote.textContent = `${draftedCandidates} reply draft${draftedCandidates === 1 ? '' : 's'}, ${payload.original_drafts.length} original`;
+
+        statStatus.textContent = payload.app.telegram_webapp_enabled ? 'Live' : 'Setup';
+        statStatusNote.textContent = payload.worker.next_run_text ? `Next scan ${payload.worker.next_run_text}` : 'Worker timing unavailable';
+      };
+
       const renderWorkerMeta = (payload) => {
         workerMeta.innerHTML = '';
         const items = [
           payload.worker.badge_html || '',
           `Next scan: ${payload.worker.next_run_text || 'n/a'}`,
-          payload.app.telegram_webapp_enabled ? 'Remote access ready' : 'Remote access not configured',
+          payload.app.telegram_webapp_enabled ? 'Telegram session verified' : 'Remote access not configured',
         ];
         items.forEach((item) => {
           const pill = document.createElement('div');
@@ -710,25 +914,82 @@ def _render_mini_app() -> str:
         });
       };
 
-      const renderDraftCard = (draft, { parent, title, generationNotes = '', original = false }) => {
-        const card = document.createElement('article');
-        card.className = 'card';
+      const renderLoading = () => {
+        queueView.innerHTML = `
+          <div class="loading">
+            <div class="skeleton"></div>
+            <div class="skeleton"></div>
+            <div class="skeleton"></div>
+          </div>
+        `;
+      };
+
+      const renderLaunchHelp = (reason = '') => {
+        state.payload = null;
+        tabQueue.classList.add('active');
+        tabOriginals.classList.remove('active');
+        queueView.style.display = 'grid';
+        originalsView.style.display = 'none';
+        originalsView.innerHTML = '';
+        workerMeta.innerHTML = '';
+        statQueue.textContent = '--';
+        statDrafts.textContent = '--';
+        statStatus.textContent = 'Launch';
+        statQueueNote.textContent = 'Mini App data unavailable';
+        statDraftsNote.textContent = 'Open through Telegram';
+        statStatusNote.textContent = 'Waiting for Telegram session';
+        queueView.innerHTML = `
+          <section class="help-card">
+            <div class="eyebrow">Mini App Launch</div>
+            <h2>Open Clearfeed from inside Telegram</h2>
+            <p class="help-copy">This page needs Telegram's signed <code>initData</code> so the backend can verify the Mini App session. That data only exists when Telegram launches the page for you.</p>
+            ${reason ? `<div class="message error" style="display:block;margin-top:14px;">${escapeHtml(reason)}</div>` : ''}
+            <div class="help-grid">
+              <div class="help-step">
+                <strong>Use the bot menu button</strong>
+                Open your bot in Telegram and tap the Clearfeed Mini App button instead of opening <code>/mini</code> in a normal browser tab.
+              </div>
+              <div class="help-step">
+                <strong>Check the Mini App URL</strong>
+                BotFather or your bot menu should point to the public HTTPS tunnel URL ending in <code>/mini</code>, not <code>http://127.0.0.1:8787/mini</code>.
+              </div>
+              <div class="help-step">
+                <strong>Restart services if needed</strong>
+                If you are using a quick tunnel, rerun <code>start_services.ps1</code> so Clearfeed refreshes <code>PUBLIC_BASE_URL</code> before you open Telegram again.
+              </div>
+              <div class="help-step">
+                <strong>Use desktop dashboard for local testing</strong>
+                If you just want to work locally in a browser, use the main dashboard at <code>http://127.0.0.1:8787/</code>.
+              </div>
+            </div>
+          </section>
+        `;
+      };
+
+      const renderDraftCard = (draft, { parent, title, generationNotes = '' }) => {
+        const card = document.createElement('section');
+        card.className = 'subcard';
         card.id = `draft-${draft.id}`;
         card.innerHTML = `
           <div class="draft-head">
             <div>
-              <h3>${escapeHtml(title)}</h3>
+              <div class="section-label">Draft</div>
+              <h3 style="margin:0 0 6px;">${escapeHtml(title)}</h3>
               <div class="meta">${escapeHtml(draft.status_label)} | ${escapeHtml(draft.updated_label)}</div>
             </div>
-            <div class="pill">${escapeHtml(draft.draft_type)}</div>
+            <span class="pill">${escapeHtml(draft.draft_type)}</span>
           </div>
-          ${generationNotes ? `<div class="note" style="margin-top:10px;"><strong>Brief:</strong><br>${escapeHtml(generationNotes)}</div>` : ''}
+          ${generationNotes ? `<div class="note" style="margin-top:12px;"><strong>Brief:</strong><br>${escapeHtml(generationNotes)}</div>` : ''}
           <div class="draft-box">
+            <div class="section-label">Draft Text</div>
             <textarea data-draft-text="${draft.id}" ${draft.is_editable ? '' : 'readonly'}>${escapeHtml(draft.draft_text)}</textarea>
-            <div class="meta" style="margin-top:8px;">${draft.char_count}${draft.draft_text_limit ? ` / ${draft.draft_text_limit}` : ' chars'}</div>
-            ${draft.has_image_path ? `<div class="note" style="margin-top:8px;">Image: ${escapeHtml(draft.image_path)}</div>` : ''}
+            <div class="char-row">
+              <span>${draft.char_count}${draft.draft_text_limit ? ` / ${draft.draft_text_limit}` : ' chars'}</span>
+              <span>${draft.has_image_prompt ? 'Image prompt available' : 'Text only'}</span>
+            </div>
+            ${draft.has_image_path ? `<div class="note" style="margin-top:8px;">Generated image saved at ${escapeHtml(draft.image_path)}</div>` : ''}
             <div class="actions">
-              ${draft.is_editable ? `<button type="button" class="ghost" data-draft-action="save_text" data-draft-id="${draft.id}">Save</button>` : ''}
+              ${draft.is_editable ? `<button type="button" class="ghost" data-draft-action="save_text" data-draft-id="${draft.id}">Save Draft</button>` : ''}
               <button type="button" class="ghost" data-copy-draft="${draft.id}">Copy</button>
               ${draft.is_editable ? `<button type="button" class="ok" data-draft-action="manual" data-draft-id="${draft.id}">Mark Posted</button>` : ''}
               ${draft.is_editable ? `<button type="button" class="bad" data-draft-action="reject" data-draft-id="${draft.id}">Reject</button>` : ''}
@@ -750,24 +1011,32 @@ def _render_mini_app() -> str:
           card.className = 'card';
           card.id = `candidate-${candidate.id}`;
           card.innerHTML = `
-            <div class="row" style="justify-content:space-between;align-items:flex-start;">
+            <div class="candidate-top">
               <div>
-                <div class="row">
+                <div class="meta-row">
                   <span class="pill">${escapeHtml(candidate.source_key)}</span>
                   <span class="pill">${escapeHtml(candidate.status_label)}</span>
                   <span class="pill">${escapeHtml(candidate.recommended_action)}</span>
                 </div>
-                <h3 style="margin:10px 0 6px;">@${escapeHtml(candidate.author_handle)}</h3>
-                <div class="meta">${escapeHtml(candidate.age_label)} old | ${escapeHtml(candidate.metrics_label)}</div>
+                <h3 class="candidate-title">@${escapeHtml(candidate.author_handle)}</h3>
+                <div class="candidate-byline">${escapeHtml(candidate.author_name)} | ${escapeHtml(candidate.age_label)} old | ${escapeHtml(candidate.metrics_label)}</div>
               </div>
-              <div class="pill">${candidate.total_score.toFixed(1)}</div>
+              <div class="score-badge">
+                <span>Score</span>
+                <strong>${candidate.total_score.toFixed(1)}</strong>
+              </div>
             </div>
-            <p class="tweet">${escapeHtml(candidate.text)}</p>
-            <div class="note">${escapeHtml(candidate.why)}</div>
-            <div class="note" style="margin-top:10px;"><a href="${escapeHtml(candidate.url)}" target="_blank" style="color:var(--accent);">Open tweet</a></div>
+            <div class="tweet-shell">
+              <p class="tweet">${escapeHtml(candidate.text)}</p>
+              <div class="insight note">${escapeHtml(candidate.why)}</div>
+            </div>
+            <div class="meta-row" style="margin-top:14px;">
+              <a href="${escapeHtml(candidate.url)}" target="_blank" rel="noreferrer">Open tweet</a>
+              <span class="subtle">${candidate.draft_count} saved draft${candidate.draft_count === 1 ? '' : 's'}</span>
+            </div>
             <div class="draft-box">
-              <div class="meta" style="margin-bottom:8px;">Draft Brief</div>
-              <textarea data-candidate-brief="${candidate.id}" placeholder="Add the angle, objection, or structure you want the next draft to lean into.">${escapeHtml(candidate.draft_generation_notes || '')}</textarea>
+              <div class="section-label">Draft Brief</div>
+              <textarea data-candidate-brief="${candidate.id}" placeholder="State the angle, objection, tone, or structure you want the next draft to follow.">${escapeHtml(candidate.draft_generation_notes || '')}</textarea>
               <div class="actions">
                 <button type="button" class="ok" data-candidate-action="draft_reply" data-candidate-id="${candidate.id}" ${candidate.can_generate_draft ? '' : 'disabled'}>Draft Reply</button>
                 <button type="button" data-candidate-action="draft_quote" data-candidate-id="${candidate.id}" ${candidate.can_generate_draft ? '' : 'disabled'}>Draft Quote</button>
@@ -791,11 +1060,11 @@ def _render_mini_app() -> str:
         originalsView.innerHTML = '';
         const composer = document.createElement('section');
         composer.className = 'panel';
-        composer.style.padding = '14px';
         composer.innerHTML = `
-          <h2 style="margin:0 0 8px;">Original Post Drafts</h2>
-          <div class="note">Use the same local drafting stack to create standalone post options.</div>
-          <div style="margin-top:10px;">
+          <div class="section-label">Original Posts</div>
+          <h2 style="margin:0 0 8px;">Generate standalone ideas</h2>
+          <div class="note">Use the same drafting stack to produce original post options from the recent signal pool.</div>
+          <div style="margin-top:12px;">
             <input type="text" id="original-topic" placeholder="Optional topic, angle, or context">
             <div class="actions">
               <button type="button" class="ok" id="generate-originals" ${payload.app.drafting_enabled ? '' : 'disabled'}>Generate Original Drafts</button>
@@ -811,17 +1080,33 @@ def _render_mini_app() -> str:
           return;
         }
         payload.original_drafts.forEach((draft) => {
+          const card = document.createElement('article');
+          card.className = 'card';
+          card.id = `draft-${draft.id}`;
           renderDraftCard(draft, {
-            parent: originalsView,
+            parent: card,
             title: `Original Draft #${draft.id}`,
-            original: true,
           });
+          originalsView.appendChild(card);
         });
+      };
+
+      const focusElementIfPresent = () => {
+        const focusId = focusDraftId ? `draft-${focusDraftId}` : focusCandidateId ? `candidate-${focusCandidateId}` : '';
+        if (!focusId) {
+          return;
+        }
+        const el = document.getElementById(focusId);
+        if (el) {
+          el.classList.add('focus-ring');
+          el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
       };
 
       const render = (payload) => {
         state.payload = payload;
         renderWorkerMeta(payload);
+        updateTopStats(payload);
         renderQueue(payload);
         renderOriginals(payload);
         const queueActive = state.activeView === 'queue';
@@ -829,41 +1114,52 @@ def _render_mini_app() -> str:
         originalsView.style.display = queueActive ? 'none' : 'grid';
         tabQueue.classList.toggle('active', queueActive);
         tabOriginals.classList.toggle('active', !queueActive);
-        const focusId = focusDraftId ? `draft-${focusDraftId}` : focusCandidateId ? `candidate-${focusCandidateId}` : '';
-        if (focusId) {
-          const el = document.getElementById(focusId);
-          if (el) {
-            el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-          }
-        }
+        focusElementIfPresent();
       };
 
+      const isMissingInitDataError = (message) => /Missing Telegram init data/i.test(String(message || ''));
+
       const refresh = async (message = '') => {
+        if (!hasTelegramInitData) {
+          renderLaunchHelp('Missing Telegram init data. Open this page from the Telegram Mini App inside Telegram.');
+          setMessage('', false);
+          return;
+        }
+        renderLoading();
+        setBusy(false);
         try {
           const payload = await request(`/api/mini/bootstrap${window.location.search || ''}`);
           render(payload);
           setMessage(message || '');
         } catch (error) {
+          if (isMissingInitDataError(error.message)) {
+            renderLaunchHelp(error.message);
+            setMessage('', false);
+            return;
+          }
           setMessage(error.message, true);
         }
       };
 
       document.addEventListener('click', async (event) => {
         const target = event.target;
-        if (!(target instanceof HTMLElement)) {
+        if (!(target instanceof HTMLElement) || state.busy || !state.payload) {
           return;
         }
         if (target.id === 'generate-originals') {
           try {
-            const topic = document.getElementById('original-topic').value;
+            const input = document.getElementById('original-topic');
+            setBusy(true, 'Generating originals...');
             const payload = await request('/api/mini/original', {
               method: 'POST',
-              body: JSON.stringify({ topic }),
+              body: JSON.stringify({ topic: input ? input.value : '' }),
             });
             render(payload);
             setMessage(payload.message || 'Original drafts created.');
           } catch (error) {
             setMessage(error.message, true);
+          } finally {
+            setBusy(false);
           }
           return;
         }
@@ -885,6 +1181,7 @@ def _render_mini_app() -> str:
           const candidateId = target.getAttribute('data-candidate-id');
           const brief = document.querySelector(`[data-candidate-brief="${candidateId}"]`);
           try {
+            setBusy(true, candidateAction === 'draft_quote' ? 'Drafting quote...' : 'Drafting reply...');
             const payload = await request('/api/mini/candidate-action', {
               method: 'POST',
               body: JSON.stringify({
@@ -897,6 +1194,8 @@ def _render_mini_app() -> str:
             setMessage(payload.message || 'Candidate updated.');
           } catch (error) {
             setMessage(error.message, true);
+          } finally {
+            setBusy(false);
           }
           return;
         }
@@ -904,7 +1203,14 @@ def _render_mini_app() -> str:
         if (draftAction) {
           const draftId = target.getAttribute('data-draft-id');
           const textarea = document.querySelector(`[data-draft-text="${draftId}"]`);
+          const actionLabels = {
+            save_text: 'Saving draft...',
+            manual: 'Marking posted...',
+            reject: 'Rejecting draft...',
+            image: 'Generating image...',
+          };
           try {
+            setBusy(true, actionLabels[draftAction] || 'Updating draft...');
             const payload = await request('/api/mini/draft-action', {
               method: 'POST',
               body: JSON.stringify({
@@ -917,6 +1223,8 @@ def _render_mini_app() -> str:
             setMessage(payload.message || 'Draft updated.');
           } catch (error) {
             setMessage(error.message, true);
+          } finally {
+            setBusy(false);
           }
         }
       });

@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlparse
 
 import yaml
 
@@ -93,10 +94,15 @@ class AppConfig:
 
     @property
     def telegram_webapp_enabled(self) -> bool:
+        public_url = self.normalized_public_base_url
+        if not public_url:
+            return False
+        parsed = urlparse(public_url)
         return bool(
             self.telegram_enabled
             and self.telegram_webapp_enabled_flag
-            and self.normalized_public_base_url
+            and parsed.scheme == "https"
+            and parsed.netloc
         )
 
     @property
@@ -213,7 +219,7 @@ class AppConfig:
                         f"Telegram is using the tunneled Mini App at {self.normalized_public_base_url}."
                         if self.telegram_webapp_enabled
                         else (
-                            "Telegram Mini App is enabled. Start services to launch the tunnel and populate PUBLIC_BASE_URL."
+                            "Telegram Mini App is enabled. Use a public HTTPS tunnel URL for PUBLIC_BASE_URL and start services to refresh it."
                             if self.telegram_enabled and self.telegram_webapp_enabled_flag
                             else "Optional. Telegram is off."
                         )

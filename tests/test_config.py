@@ -151,6 +151,10 @@ class ConfigTests(unittest.TestCase):
             config = load_config(root)
             self.assertTrue(config.telegram_enabled)
             self.assertFalse(config.telegram_webapp_enabled)
+            os.environ["PUBLIC_BASE_URL"] = "http://127.0.0.1:8787"
+            config = load_config(root)
+            self.assertEqual(config.normalized_public_base_url, "http://127.0.0.1:8787")
+            self.assertFalse(config.telegram_webapp_enabled)
             os.environ["PUBLIC_BASE_URL"] = "https://example.trycloudflare.com/"
             config = load_config(root)
             self.assertEqual(config.normalized_public_base_url, "https://example.trycloudflare.com")
