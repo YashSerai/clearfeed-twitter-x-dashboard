@@ -45,6 +45,12 @@ It also asks you which AI provider you want to use:
 - `1` = Vertex
 - `2` = OpenAI-compatible
 
+If you choose Telegram Mini App mode during setup, it also:
+- prompts for `TELEGRAM_BOT_TOKEN`
+- prompts for `TELEGRAM_CHAT_ID`
+- attempts to install `cloudflared`
+- attempts to start the Cloudflare quick tunnel immediately so `.env` gets `PUBLIC_BASE_URL`
+
 If `.env` already exists, `setup.ps1` updates provider-related keys in place instead of replacing the whole file.
 Even so, back up one-time secrets before rerunning setup. Some providers only show API keys once.
 
@@ -260,10 +266,11 @@ User-facing URLs:
 Recommended setup path:
 1. run `.\scripts\setup.ps1`
 2. choose `Telegram Mini App with automatic tunnel`
-3. fill `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` in `.env`
-4. run `.\scripts\start_services.ps1`
-5. let Clearfeed start the Cloudflare quick tunnel and populate `PUBLIC_BASE_URL`
-6. open the bot in Telegram and launch Clearfeed from the menu button or alert message
+3. enter `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` when setup asks, or fill them later in `.env`
+4. let setup populate `PUBLIC_BASE_URL` immediately if the quick tunnel starts successfully
+5. run `.\scripts\start_services.ps1`
+6. let Clearfeed refresh the Cloudflare quick tunnel and `PUBLIC_BASE_URL`
+7. open the bot in Telegram and launch Clearfeed from the menu button or alert message
 
 Remote use only works while your computer is awake, online, and the tunnel is still running.
 
@@ -299,7 +306,7 @@ Important rules:
 - OpenAI-compatible text works but vision/image features are unavailable: set `AI_VISION_MODEL` and/or `AI_IMAGE_MODEL`, and make sure your provider actually supports those capabilities.
 - Archive import fails: point the import at the unzipped archive root folder, not a random parent folder.
 - Dashboard opens but nothing appears: make sure at least one list URL is set, or enable home timeline discovery.
-- Telegram Mini App fails to open remotely: verify `TELEGRAM_WEBAPP_ENABLED=true`, `CLOUDFLARED_AUTO_START=true`, `PUBLIC_BASE_URL` was populated after `.\scripts\start_services.ps1`, and the dashboard process is running.
+- Telegram Mini App fails to open remotely: verify `TELEGRAM_WEBAPP_ENABLED=true`, `CLOUDFLARED_AUTO_START=true`, `PUBLIC_BASE_URL` was populated during setup or after `.\scripts\start_services.ps1`, and the dashboard process is running.
 - `start_services.ps1` fails in Telegram Mini App mode: check that `cloudflared` is installed and that the machine can open a Cloudflare quick tunnel.
 - Telegram actions do nothing: Telegram remains disabled until `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` are configured.
 - Vertex auth failures: verify `GOOGLE_CLOUD_PROJECT` and `GOOGLE_APPLICATION_CREDENTIALS`, then confirm the account has access to the configured models.

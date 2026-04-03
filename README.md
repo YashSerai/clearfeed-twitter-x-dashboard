@@ -124,9 +124,15 @@ Then open [http://127.0.0.1:8787/](http://127.0.0.1:8787/).
 
 10. Optional: enable Telegram access on your phone or another network.
 Choose `Telegram Mini App with automatic tunnel` during `.\scripts\setup.ps1`.
+Setup now:
+- prompts for `TELEGRAM_BOT_TOKEN`
+- prompts for `TELEGRAM_CHAT_ID`
+- tries to install `cloudflared`
+- tries to launch the quick tunnel immediately so `.env` gets a usable `PUBLIC_BASE_URL`
+
 Then `.\scripts\start_services.ps1` will:
 - start a Cloudflare quick tunnel automatically
-- update `PUBLIC_BASE_URL` automatically
+- refresh `PUBLIC_BASE_URL` automatically
 - start the dashboard and worker with that tunneled URL
 - let Telegram open the same Clearfeed workflow through the Mini App
 

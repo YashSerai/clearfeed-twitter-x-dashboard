@@ -36,6 +36,25 @@ function Set-EnvValue {
     Set-Content -Path $Path -Value $lines -Encoding UTF8
 }
 
+function Get-EnvValue {
+    param(
+        [string]$Path,
+        [string]$Key
+    )
+
+    if (-not (Test-Path $Path)) {
+        return ""
+    }
+
+    foreach ($rawLine in Get-Content $Path) {
+        if ($rawLine -match "^$([regex]::Escape($Key))=(.*)$") {
+            return $Matches[1]
+        }
+    }
+
+    return ""
+}
+
 $paths = @(
     ".\\data\\browser",
     ".\\data\\generated",
@@ -152,6 +171,31 @@ if ($telegramChoice -eq "2") {
     Set-EnvValue -Path ".\\.env" -Key "TELEGRAM_LEGACY_FORWARDING_ENABLED" -Value "false"
     Set-EnvValue -Path ".\\.env" -Key "CLOUDFLARED_AUTO_START" -Value "true"
     Set-EnvValue -Path ".\\.env" -Key "CLOUDFLARED_TUNNEL_MODE" -Value "quick"
+
+    $currentBotToken = Get-EnvValue -Path ".\\.env" -Key "TELEGRAM_BOT_TOKEN"
+    $currentChatId = Get-EnvValue -Path ".\\.env" -Key "TELEGRAM_CHAT_ID"
+
+    Write-Host ""
+    if ($currentBotToken) {
+        $botTokenInput = (Read-Host "Telegram bot token (press Enter to keep existing value)").Trim()
+    }
+    else {
+        $botTokenInput = (Read-Host "Telegram bot token (leave blank to fill later)").Trim()
+    }
+    if ($botTokenInput) {
+        Set-EnvValue -Path ".\\.env" -Key "TELEGRAM_BOT_TOKEN" -Value $botTokenInput
+    }
+
+    if ($currentChatId) {
+        $chatIdInput = (Read-Host "Telegram chat ID (press Enter to keep existing value)").Trim()
+    }
+    else {
+        $chatIdInput = (Read-Host "Telegram chat ID (leave blank to fill later)").Trim()
+    }
+    if ($chatIdInput) {
+        Set-EnvValue -Path ".\\.env" -Key "TELEGRAM_CHAT_ID" -Value $chatIdInput
+    }
+
     try {
         & "$PSScriptRoot\\ensure-cloudflared.ps1"
     }
@@ -159,14 +203,51 @@ if ($telegramChoice -eq "2") {
         Write-Host "cloudflared install/setup failed: $($_.Exception.Message)"
         Write-Host "You can still continue, but start_services.ps1 will fail until cloudflared is installed."
     }
+
+    $publicBaseUrl = ""
+    try {
+        Write-Host ""
+        Write-Host "Starting the Cloudflare quick tunnel now so setup can populate PUBLIC_BASE_URL..."
+        & "$PSScriptRoot\\start_tunnel.ps1"
+        $publicBaseUrl = Get-EnvValue -Path ".\\.env" -Key "PUBLIC_BASE_URL"
+    }
+    catch {
+        Write-Host "Automatic tunnel startup failed during setup: $($_.Exception.Message)"
+        Write-Host "You can still continue. start_services.ps1 will retry the tunnel launch later."
+    }
+
+    $missingTelegramKeys = @()
+    if (-not (Get-EnvValue -Path ".\\.env" -Key "TELEGRAM_BOT_TOKEN")) {
+        $missingTelegramKeys += "  TELEGRAM_BOT_TOKEN"
+    }
+    if (-not (Get-EnvValue -Path ".\\.env" -Key "TELEGRAM_CHAT_ID")) {
+        $missingTelegramKeys += "  TELEGRAM_CHAT_ID"
+    }
+
     $telegramSummary = @(
         "Selected Telegram mode: Mini App over tunnel"
-        "Fill these next in .env:"
-        "  TELEGRAM_BOT_TOKEN"
-        "  TELEGRAM_CHAT_ID"
+        "What setup did:"
+        "  enabled Telegram Mini App mode"
+        "  disabled legacy Telegram forwarding"
+        "  enabled automatic cloudflared startup"
+    )
+
+    if ($publicBaseUrl) {
+        $telegramSummary += "  populated PUBLIC_BASE_URL=$publicBaseUrl"
+    }
+    else {
+        $telegramSummary += "  did not populate PUBLIC_BASE_URL yet"
+    }
+
+    if ($missingTelegramKeys.Count -gt 0) {
+        $telegramSummary += "Fill these next in .env:"
+        $telegramSummary += $missingTelegramKeys
+    }
+
+    $telegramSummary += @(
         "What happens when you start services:"
         "  start_services.ps1 launches a cloudflared quick tunnel automatically"
-        "  PUBLIC_BASE_URL is updated automatically from that tunnel"
+        "  PUBLIC_BASE_URL is refreshed automatically from that tunnel"
         "  Telegram opens Clearfeed through the menu button and Mini App"
     )
 }

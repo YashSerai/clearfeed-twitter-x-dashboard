@@ -64,6 +64,23 @@ function Get-CloudflaredCommand {
     return $null
 }
 
+function Stop-ExistingManagedTunnel {
+    $tunnelProcesses = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+        Where-Object {
+            $_.Name -like "cloudflared*" -and
+            $_.CommandLine -and
+            $_.CommandLine -like "*http://127.0.0.1:8787*"
+        }
+
+    $stopped = 0
+    foreach ($process in @($tunnelProcesses)) {
+        Stop-Process -Id $process.ProcessId -Force -ErrorAction SilentlyContinue
+        $stopped += 1
+    }
+
+    return $stopped
+}
+
 $envPath = Join-Path $root ".env"
 $envMap = Get-EnvMap -Path $envPath
 $telegramModeRaw = ""
@@ -97,6 +114,14 @@ if ($tunnelMode -ne "quick") {
 $cloudflared = Get-CloudflaredCommand
 if (-not $cloudflared) {
     throw "cloudflared is not installed."
+}
+
+$stoppedTunnelCount = Stop-ExistingManagedTunnel
+if ($stoppedTunnelCount -gt 0) {
+    Start-Sleep -Milliseconds 500
+    if (-not $Quiet) {
+        Write-Host "Stopped $stoppedTunnelCount existing cloudflared tunnel process(es)."
+    }
 }
 
 $logsDir = Join-Path $root "logs"
