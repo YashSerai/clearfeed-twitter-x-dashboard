@@ -136,6 +136,9 @@ Then `.\scripts\start_services.ps1` will:
 - start the dashboard and worker with that tunneled URL
 - let Telegram open the same Clearfeed workflow through the Mini App
 
+If setup already populated `PUBLIC_BASE_URL`, it also prints the exact Mini App link to use in BotFather or manual Telegram bot setup:
+- `https://your-public-url/mini`
+
 Telegram uses the same local app and database as the desktop dashboard:
 - desktop dashboard: `http://127.0.0.1:8787/`
 - local Mini App page: `http://127.0.0.1:8787/mini`

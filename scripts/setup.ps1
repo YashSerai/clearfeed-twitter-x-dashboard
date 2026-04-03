@@ -234,6 +234,7 @@ if ($telegramChoice -eq "2") {
 
     if ($publicBaseUrl) {
         $telegramSummary += "  populated PUBLIC_BASE_URL=$publicBaseUrl"
+        $telegramSummary += "  Telegram Mini App URL: $publicBaseUrl/mini"
     }
     else {
         $telegramSummary += "  did not populate PUBLIC_BASE_URL yet"
@@ -250,6 +251,14 @@ if ($telegramChoice -eq "2") {
         "  PUBLIC_BASE_URL is refreshed automatically from that tunnel"
         "  Telegram opens Clearfeed through the menu button and Mini App"
     )
+
+    if ($publicBaseUrl) {
+        $telegramSummary += @(
+            "Telegram bot setup:"
+            "  Mini App link for BotFather or manual bot setup: $publicBaseUrl/mini"
+            "  Clearfeed also tries to sync the bot menu button automatically when services start"
+        )
+    }
 }
 else {
     Set-EnvValue -Path ".\\.env" -Key "TELEGRAM_WEBAPP_ENABLED" -Value "false"

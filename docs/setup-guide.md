@@ -257,6 +257,7 @@ How it works:
 - the Mini App calls the same local service methods as the dashboard, so edits, saved drafts, image generation, and manual-post decisions stay in sync
 - the tunnel URL is the Telegram-facing version of your local app
 - `start_services.ps1` can launch the quick tunnel for you and update `PUBLIC_BASE_URL` automatically
+- if setup already launched the tunnel successfully, it prints the exact Mini App URL you can use in BotFather: `PUBLIC_BASE_URL/mini`
 
 User-facing URLs:
 - desktop dashboard: `http://127.0.0.1:8787/`
@@ -273,6 +274,11 @@ Recommended setup path:
 7. open the bot in Telegram and launch Clearfeed from the menu button or alert message
 
 Remote use only works while your computer is awake, online, and the tunnel is still running.
+
+BotFather / manual Mini App link:
+- use `PUBLIC_BASE_URL/mini`
+- example: `https://strengthen-opened-detector-compact.trycloudflare.com/mini`
+- Clearfeed also tries to sync the bot menu button automatically when services start
 
 ## Voice Evolution
 This repo includes a local feedback loop for improving `profiles/local/Voice.md` over time.
