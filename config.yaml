@@ -6,7 +6,7 @@ style:
 worker:
   min_delay_minutes: 25
   max_delay_minutes: 35
-  max_candidates_per_cycle: 6
+  max_candidates_per_cycle: 10
   candidate_overlap_minutes: 60
   max_reply_age_minutes: 60
   article_expand_char_limit: 12000
@@ -17,8 +17,13 @@ worker:
   default_image_mode: suggest_only
   homepage_scrape_limit: 60
   homepage_llm_pool_size: 24
-  homepage_max_alerts_per_cycle: 2
+  list_max_alerts_per_cycle: 6
+  homepage_max_alerts_per_cycle: 4
   homepage_max_opportunistic_alerts_per_cycle: 1
+  list_min_views_required: 1000
+  list_min_views_age_minutes: 10
+  homepage_min_views_required: 10000
+  homepage_min_views_age_minutes: 10
   author_signal_lookback_hours: 72
   focus_keywords:
     - ai

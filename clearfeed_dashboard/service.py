@@ -573,6 +573,8 @@ class XAgentService:
                     source = source_map[post.source_key]
                     if age_minutes(post.posted_at) > self._max_age_minutes_for_source(source):
                         continue
+                    if not self._passes_view_gate(post, source):
+                        continue
                     breakdown = score_breakdown(
                         post,
                         source,
@@ -716,6 +718,19 @@ class XAgentService:
     def _min_total_threshold(self, source_type: str) -> float:
         return 62.0 if source_type == "home" else 46.0
 
+    def _passes_view_gate(self, post: Any, source: Any) -> bool:
+        if source.type not in {"list", "home"}:
+            return True
+        age = age_minutes(post.posted_at)
+        views = int((post.metrics or {}).get("view_count", 0) or 0)
+        if source.type == "list":
+            if age < self.config.worker.list_min_views_age_minutes:
+                return True
+            return views >= self.config.worker.list_min_views_required
+        if age < self.config.worker.homepage_min_views_age_minutes:
+            return True
+        return views >= self.config.worker.homepage_min_views_required
+
     def _build_llm_pool(self, ranked: list[dict[str, Any]]) -> list[dict[str, Any]]:
         default_pool_size = max(self.config.worker.max_candidates_per_cycle * 3, 12)
         home_items = [item for item in ranked if item["source_type"] == "home"][: self.config.worker.homepage_llm_pool_size]
@@ -731,23 +746,64 @@ class XAgentService:
 
     def _select_candidates_for_alerts(self, rows: list[sqlite3.Row]) -> list[sqlite3.Row]:
         selected: list[sqlite3.Row] = []
+        selected_ids: set[int] = set()
         home_selected = 0
+        list_selected = 0
         opportunistic_home_selected = 0
-        for row in rows:
+
+        def can_take_home(row: sqlite3.Row, home_cap: int) -> bool:
+            if row["source_key"] != "home_timeline":
+                return False
+            if home_selected >= home_cap:
+                return False
+            if row["opportunity_bucket"] != "opportunistic":
+                return True
+            return opportunistic_home_selected < self.config.worker.homepage_max_opportunistic_alerts_per_cycle
+
+        def take(row: sqlite3.Row) -> None:
+            nonlocal home_selected, list_selected, opportunistic_home_selected
+            row_id = int(row["id"])
+            if row_id in selected_ids:
+                return
+            selected.append(row)
+            selected_ids.add(row_id)
+            if row["source_key"] == "home_timeline":
+                home_selected += 1
+                if row["opportunity_bucket"] == "opportunistic":
+                    opportunistic_home_selected += 1
+            elif row["source_key"] != "mentions":
+                list_selected += 1
+
+        list_rows = [row for row in rows if row["source_key"] not in {"home_timeline", "mentions"}]
+        home_rows = [row for row in rows if row["source_key"] == "home_timeline"]
+        other_rows = [row for row in rows if row["source_key"] == "mentions"]
+
+        for row in list_rows:
             if len(selected) >= self.config.worker.max_candidates_per_cycle:
                 break
-            if row["source_key"] == "home_timeline":
-                if home_selected >= self.config.worker.homepage_max_alerts_per_cycle:
-                    continue
-                if row["opportunity_bucket"] == "opportunistic":
-                    if (
-                        opportunistic_home_selected
-                        >= self.config.worker.homepage_max_opportunistic_alerts_per_cycle
-                    ):
-                        continue
-                    opportunistic_home_selected += 1
-                home_selected += 1
-            selected.append(row)
+            if list_selected >= self.config.worker.list_max_alerts_per_cycle:
+                break
+            take(row)
+
+        list_shortfall = max(self.config.worker.list_max_alerts_per_cycle - list_selected, 0)
+        home_cap = min(
+            self.config.worker.max_candidates_per_cycle - len(selected),
+            self.config.worker.homepage_max_alerts_per_cycle + list_shortfall,
+        )
+        for row in home_rows:
+            if len(selected) >= self.config.worker.max_candidates_per_cycle:
+                break
+            if home_selected >= home_cap:
+                break
+            if not can_take_home(row, home_cap):
+                continue
+            take(row)
+
+        for row in other_rows:
+            if len(selected) >= self.config.worker.max_candidates_per_cycle:
+                break
+            take(row)
+
         return selected
 
     def process_telegram_updates(self) -> None:

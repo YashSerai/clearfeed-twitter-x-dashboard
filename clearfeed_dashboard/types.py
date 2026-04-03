@@ -33,8 +33,13 @@ class WorkerSettings:
     default_image_mode: str
     homepage_scrape_limit: int
     homepage_llm_pool_size: int
+    list_max_alerts_per_cycle: int
     homepage_max_alerts_per_cycle: int
     homepage_max_opportunistic_alerts_per_cycle: int
+    list_min_views_required: int
+    list_min_views_age_minutes: int
+    homepage_min_views_required: int
+    homepage_min_views_age_minutes: int
     author_signal_lookback_hours: int
     focus_keywords: list[str]
     secondary_focus_keywords: list[str]
