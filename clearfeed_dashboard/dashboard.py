@@ -116,7 +116,12 @@ def run_dashboard(host: str = "127.0.0.1", port: int = 8787) -> None:
 
         def do_POST(self) -> None:  # noqa: N802
             parsed = urlparse(self.path)
-            if parsed.path in {"/api/mini/candidate-action", "/api/mini/draft-action", "/api/mini/original"}:
+            if parsed.path in {
+                "/api/mini/candidate-action",
+                "/api/mini/draft-action",
+                "/api/mini/original",
+                "/api/mini/original-topics",
+            }:
                 try:
                     self._require_mini_session()
                     payload = self._json_payload()
@@ -124,10 +129,14 @@ def run_dashboard(host: str = "127.0.0.1", port: int = 8787) -> None:
                         result = _mini_candidate_action(service, payload)
                     elif parsed.path == "/api/mini/draft-action":
                         result = _mini_draft_action(service, payload)
+                    elif parsed.path == "/api/mini/original-topics":
+                        result = _mini_original_topics_action(service, payload)
                     else:
                         result = _mini_original_action(service, payload)
                     response_payload = _mini_bootstrap_payload(service)
                     response_payload["message"] = result["message"]
+                    if "topic_suggestions" in result:
+                        response_payload["topic_suggestions"] = result["topic_suggestions"]
                     self._send_json(200, response_payload)
                 except TelegramWebAppAuthError as exc:
                     self._send_json(401, {"error": str(exc)})
@@ -144,6 +153,17 @@ def run_dashboard(host: str = "127.0.0.1", port: int = 8787) -> None:
             form = parse_qs(raw, keep_blank_values=True)
 
             try:
+                if parsed.path == "/original-topics":
+                    topic_hint = form.get("topic_hint", [""])[0]
+                    suggestions = service.suggest_original_post_topics(topic_hint=topic_hint, limit=5)
+                    self._send_json(
+                        200,
+                        {
+                            "message": f"Found {len(suggestions)} timely topic suggestion(s).",
+                            "topic_suggestions": suggestions,
+                        },
+                    )
+                    return
                 if parsed.path == "/candidate":
                     candidate_id = int(form["candidate_id"][0])
                     action = form["action"][0]
@@ -471,6 +491,7 @@ def _mini_bootstrap_payload(
         },
         "queue": queue,
         "original_drafts": original_drafts,
+        "topic_suggestions": [],
     }
 
 
@@ -507,6 +528,15 @@ def _mini_original_action(service: XAgentService, payload: dict[str, Any]) -> di
     topic = str(payload.get("topic") or "")
     draft_ids = service.create_original_drafts(topic, notify_telegram=False)
     return {"message": f"Created {len(draft_ids)} original draft(s).", "draft_ids": draft_ids}
+
+
+def _mini_original_topics_action(service: XAgentService, payload: dict[str, Any]) -> dict[str, Any]:
+    topic_hint = str(payload.get("topic_hint") or "")
+    suggestions = service.suggest_original_post_topics(topic_hint=topic_hint, limit=5)
+    return {
+        "message": f"Found {len(suggestions)} timely topic suggestion(s).",
+        "topic_suggestions": suggestions,
+    }
 
 
 def _render_mini_app() -> str:
@@ -1086,6 +1116,7 @@ def _render_mini_app() -> str:
         const dailyCap = Number(payload.app.max_original_drafts_per_day || 0);
         const originalsModel = String(payload.app.originals_model || '');
         const researchNote = payload.app.web_research_enabled ? 'with live web research' : 'from your local signal pool';
+        const topicSuggestions = Array.isArray(payload.topic_suggestions) ? payload.topic_suggestions : [];
         const composer = document.createElement('section');
         composer.className = 'panel';
         composer.innerHTML = `
@@ -1095,11 +1126,38 @@ def _render_mini_app() -> str:
           <div style="margin-top:12px;">
             <input type="text" id="original-topic" placeholder="Optional topic, angle, or context">
             <div class="actions">
+              <button type="button" class="ghost" id="find-original-topics" ${payload.app.drafting_enabled ? '' : 'disabled'}>Find Timely Topics</button>
               <button type="button" class="ok" id="generate-originals" ${payload.app.drafting_enabled ? '' : 'disabled'}>Generate Original Drafts</button>
             </div>
           </div>
         `;
         originalsView.appendChild(composer);
+        if (topicSuggestions.length) {
+          const suggestionsPanel = document.createElement('section');
+          suggestionsPanel.className = 'panel';
+          suggestionsPanel.innerHTML = '<div class="section-label">Timely Topics</div><h2 style="margin:0 0 8px;">Pick what is worth posting about</h2><div class="note">Review the signal, decide whether it is worth posting about, then load the topic and angle into the draft brief before you generate the batch.</div>';
+          topicSuggestions.forEach((item, index) => {
+            const card = document.createElement('article');
+            card.className = 'subcard';
+            const title = escapeHtml(item.title || `Topic ${index + 1}`);
+            const whyNow = escapeHtml(item.why_now || '');
+            const suggestedAngle = escapeHtml(item.suggested_angle || '');
+            const promptSeed = escapeHtml(item.prompt_seed || '');
+            card.innerHTML = `
+              <div class="draft-head">
+                <div>
+                  <div class="section-label">Topic ${index + 1}</div>
+                  <h3 style="margin:0 0 6px;">${title}</h3>
+                </div>
+                <button type="button" class="ok" data-use-original-topic="${promptSeed}">Use Topic + Angle</button>
+              </div>
+              ${whyNow ? `<div class="note" style="margin-top:10px;"><strong>Why now:</strong><br>${whyNow}</div>` : ''}
+              ${suggestedAngle ? `<div class="note" style="margin-top:10px;"><strong>Suggested angle:</strong><br>${suggestedAngle}</div>` : ''}
+            `;
+            suggestionsPanel.appendChild(card);
+          });
+          originalsView.appendChild(suggestionsPanel);
+        }
         if (!payload.original_drafts.length) {
           const empty = document.createElement('div');
           empty.className = 'empty';
@@ -1133,11 +1191,19 @@ def _render_mini_app() -> str:
       };
 
       const render = (payload) => {
-        state.payload = payload;
-        renderWorkerMeta(payload);
-        updateTopStats(payload);
-        renderQueue(payload);
-        renderOriginals(payload);
+        const nextPayload = {
+          ...payload,
+          topic_suggestions: Array.isArray(payload.topic_suggestions) && payload.topic_suggestions.length
+            ? payload.topic_suggestions
+            : Array.isArray(state.payload && state.payload.topic_suggestions)
+              ? state.payload.topic_suggestions
+              : [],
+        };
+        state.payload = nextPayload;
+        renderWorkerMeta(nextPayload);
+        updateTopStats(nextPayload);
+        renderQueue(nextPayload);
+        renderOriginals(nextPayload);
         const queueActive = state.activeView === 'queue';
         queueView.style.display = queueActive ? 'grid' : 'none';
         originalsView.style.display = queueActive ? 'none' : 'grid';
@@ -1219,6 +1285,34 @@ def _render_mini_app() -> str:
           } finally {
             setBusy(false);
           }
+          return;
+        }
+        if (target.id === 'find-original-topics') {
+          try {
+            const input = document.getElementById('original-topic');
+            setBusy(true, 'Finding timely topics...');
+            const payload = await request('/api/mini/original-topics', {
+              method: 'POST',
+              body: JSON.stringify({ topic_hint: input ? input.value : '' }),
+            });
+            render(payload);
+            setMessage(payload.message || 'Timely topics loaded.');
+          } catch (error) {
+            setMessage(error.message, true);
+          } finally {
+            setBusy(false);
+          }
+          return;
+        }
+        const useOriginalTopic = target.getAttribute('data-use-original-topic');
+        if (useOriginalTopic) {
+          const input = document.getElementById('original-topic');
+          if (input) {
+            input.value = useOriginalTopic;
+            input.focus();
+            input.setSelectionRange(input.value.length, input.value.length);
+          }
+          setMessage('Loaded topic and angle into the draft brief.');
           return;
         }
         const copyDraftId = target.getAttribute('data-copy-draft');
@@ -1713,11 +1807,100 @@ def _render_dashboard(
       display:flex;
       flex-direction:column;
     }}
+    .originals-workspace {{
+      display:grid;
+      grid-template-columns: minmax(0, 1.1fr) minmax(320px, .9fr);
+      gap: 16px;
+      align-items: stretch;
+    }}
+    .originals-pane {{
+      display:flex;
+      flex-direction:column;
+      gap: 12px;
+      padding: 18px;
+      border: 1px solid rgba(255,255,255,.06);
+      border-radius: 18px;
+      background: linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,.02));
+      min-height: 100%;
+    }}
+    .originals-pane h3 {{
+      margin: 0;
+      font-size: 22px;
+      letter-spacing: -.02em;
+    }}
+    .originals-pane .section-note {{
+      margin: 0;
+    }}
     .original-draft-form {{
       display:flex;
       flex-direction:column;
       gap:12px;
       flex: 1 1 auto;
+    }}
+    .original-draft-actions {{
+      display:flex;
+      flex-wrap:wrap;
+      gap: 10px;
+    }}
+    .original-topics-status {{
+      padding: 12px 14px;
+      border-radius: 14px;
+      border: 1px solid rgba(95,205,255,.16);
+      background: rgba(95,205,255,.06);
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.55;
+    }}
+    .original-topics-status[data-state="ready"] {{
+      border-color: rgba(52,211,153,.24);
+      background: rgba(52,211,153,.08);
+      color: var(--text);
+    }}
+    .original-topics-status[data-state="error"] {{
+      border-color: rgba(251,113,133,.24);
+      background: rgba(251,113,133,.1);
+      color: #ffd5dc;
+    }}
+    .original-topic-suggestions {{
+      display:grid;
+      gap: 12px;
+    }}
+    .topic-suggestion-card {{
+      padding: 16px;
+      border-radius: 16px;
+      border: 1px solid rgba(255,255,255,.06);
+      background: rgba(4, 10, 17, .38);
+      display:grid;
+      gap: 10px;
+    }}
+    .topic-suggestion-top {{
+      display:flex;
+      justify-content:space-between;
+      align-items:flex-start;
+      gap: 10px;
+    }}
+    .topic-suggestion-top h4 {{
+      margin: 0;
+      font-size: 16px;
+      line-height: 1.35;
+    }}
+    .topic-suggestion-copy {{
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.55;
+    }}
+    .topic-suggestion-copy strong {{
+      color: var(--text);
+      font-weight: 600;
+    }}
+    .topic-suggestion-empty {{
+      padding: 20px;
+      border-radius: 16px;
+      border: 1px dashed rgba(255,255,255,.08);
+      color: var(--muted);
+      line-height: 1.6;
+      background: rgba(255,255,255,.02);
     }}
     .original-topic-input {{
       min-height: 148px;
@@ -2483,7 +2666,8 @@ def _render_dashboard(
       .dev-split {{ grid-template-columns: 1fr; }}
       .queue-layout,
       .queue-card,
-      .original-drafts-grid {{ grid-template-columns: 1fr; }}
+      .original-drafts-grid,
+      .originals-workspace {{ grid-template-columns: 1fr; }}
       .queue-toolbar {{ justify-content: flex-start; }}
       .queue-counter {{ text-align: left; min-width: 0; }}
       .worker-controls {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
@@ -2561,16 +2745,35 @@ def _render_dashboard(
       <div class="span-12" id="archive-voice">
         {archive_voice_html}
       </div>
-      <section class="card span-4 original-drafts-card">
-        <h2>Create Original Drafts</h2>
-        <div class="section-note">Use this for standalone posts that are not tied to a tweet in the reply queue. Clearfeed now generates them in daily-ready batches and, when supported, grounds them with live web research.</div>
-        <form method="post" action="/original" class="original-draft-form">
-          <textarea name="topic" class="original-topic-input" placeholder="Optional topic, angle, or context for the post. Example: new OpenAI parameter changes and why they matter for builders."></textarea>
-          <button class="ok" type="submit" data-busy-label="Generating original drafts..."{' disabled title="Configure the selected AI provider in .env to enable original drafting."' if not drafting_enabled else ''}>Generate Original Drafts</button>
-        </form>
-        {'' if drafting_enabled else '<div class="inline-warning">Original drafting is disabled until the selected AI provider is configured in <code>.env</code>.</div>'}
+      <section class="card span-12 original-drafts-card">
+        <h2>Original Draft Studio</h2>
+        <div class="section-note">Use this for standalone posts that are not tied to a tweet in the reply queue. Start by finding a timely topic, decide if it is worth posting about, then load the suggested angle into your draft brief before generating the batch.</div>
+        <div class="originals-workspace">
+          <section class="originals-pane">
+            <div class="section-label">Draft Brief</div>
+            <h3>Shape the post before you generate it</h3>
+            <p class="section-note">Tell Clearfeed what you want to say, what angle to take, or what point you want the posts to make. This can be a topic, a claim, a disagreement, or a builder takeaway.</p>
+            <form method="post" action="/original" class="original-draft-form">
+              <textarea name="topic" class="original-topic-input" data-original-topic-input placeholder="Example: OpenAI's latest model launch, but focus on what this changes for builders choosing between premium APIs and open models."></textarea>
+              <div class="original-draft-actions">
+                <button type="button" class="ghost-button" data-find-original-topics{' disabled title="Configure the selected AI provider in .env to enable topic discovery."' if not drafting_enabled else ''}>Find Timely Topics</button>
+                <button class="ok" type="submit" data-busy-label="Generating original drafts..."{' disabled title="Configure the selected AI provider in .env to enable original drafting."' if not drafting_enabled else ''}>Generate Original Drafts</button>
+              </div>
+            </form>
+            {'' if drafting_enabled else '<div class="inline-warning">Original drafting is disabled until the selected AI provider is configured in <code>.env</code>.</div>'}
+          </section>
+          <section class="originals-pane">
+            <div class="section-label">Topic Discovery</div>
+            <h3>Find something timely worth posting about</h3>
+            <p class="section-note">Clearfeed uses current signals and, when available, live web research to suggest topics with a concrete angle. Review the suggestions first, then choose whether you actually want to post on one of them.</p>
+            <div class="original-topics-status" data-original-topics-status data-state="idle">Press <strong>Find Timely Topics</strong> to scan current discussions and surface a few ideas worth considering.</div>
+            <div class="original-topic-suggestions" data-original-topics>
+              <div class="topic-suggestion-empty">No topic suggestions loaded yet. Once you fetch them, this panel will show what is happening now, why it matters, and the angle Clearfeed thinks is strongest.</div>
+            </div>
+          </section>
+        </div>
       </section>
-      <section class="card span-4">
+      <section class="card span-6">
         <h2>Worker Flow</h2>
         <div class="section-note">{_escape(cadence_copy)}</div>
         <ul class="stats">{workflow_html}</ul>
@@ -2583,7 +2786,7 @@ def _render_dashboard(
         {f'<div class="error"><strong>Last error:</strong> {_escape(last_error)}</div>' if last_error else ''}
         {'' if worker_ready else '<div class="inline-warning">Worker actions are disabled until an X session is captured and at least one source is configured.</div>'}
       </section>
-      <section class="card span-4">
+      <section class="card span-6">
         <h2>Reset History</h2>
         <div class="section-note">Clears local queue, drafts, posted history, archive summaries, and voice proposal history. Keeps your <code>.env</code>, sources, and profile files.</div>
         <div class="reset-grid">
@@ -2758,7 +2961,74 @@ def _render_dashboard(
     toastTimer = window.setTimeout(() => {{
       toast.classList.remove('is-visible');
       toast.setAttribute('aria-hidden', 'true');
-    }}, 1800);
+      }}, 1800);
+  }};
+  const escapeHtml = (value) => String(value || '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;');
+  const originalTopicInput = document.querySelector('[data-original-topic-input]');
+  const originalTopicsStatus = document.querySelector('[data-original-topics-status]');
+  const originalTopicsRoot = document.querySelector('[data-original-topics]');
+  const setOriginalTopicsStatus = (message, state = 'idle') => {{
+    if (!originalTopicsStatus) {{
+      return;
+    }}
+    originalTopicsStatus.dataset.state = state;
+    originalTopicsStatus.innerHTML = message;
+  }};
+  const renderOriginalTopicSuggestions = (items) => {{
+    if (!originalTopicsRoot) {{
+      return;
+    }}
+    if (!Array.isArray(items) || !items.length) {{
+      originalTopicsRoot.innerHTML = '<div class="topic-suggestion-empty">No timely topics came back for this pass. Try a different hint or rerun the scan in a few minutes when the signal set changes.</div>';
+      return;
+    }}
+    originalTopicsRoot.innerHTML = items.map((item, index) => {{
+      const title = escapeHtml(item.title || `Topic ${{index + 1}}`);
+      const whyNow = escapeHtml(item.why_now || '');
+      const suggestedAngle = escapeHtml(item.suggested_angle || '');
+      const promptSeed = escapeHtml(item.prompt_seed || '');
+      return `
+        <article class="topic-suggestion-card">
+          <div class="topic-suggestion-top">
+            <div>
+              <div class="section-label">Topic ${{index + 1}}</div>
+              <h4>${{title}}</h4>
+            </div>
+            <button type="button" class="ok" data-use-original-seed="${{promptSeed}}">Use Topic + Angle</button>
+          </div>
+          ${{whyNow ? `<p class="topic-suggestion-copy"><strong>Why now:</strong><br>${{whyNow}}</p>` : ''}}
+          ${{suggestedAngle ? `<p class="topic-suggestion-copy"><strong>Suggested angle:</strong><br>${{suggestedAngle}}</p>` : ''}}
+        </article>
+      `;
+    }}).join('');
+  }};
+  const fetchOriginalTopicSuggestions = async (topicHint) => {{
+    const body = new URLSearchParams();
+    body.set('topic_hint', topicHint || '');
+    const response = await fetch('/original-topics', {{
+      method: 'POST',
+      headers: {{
+        'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+      }},
+      body: body.toString(),
+      credentials: 'same-origin',
+    }});
+    if (!response.ok) {{
+      let errorText = `Topic discovery failed with status ${{response.status}}`;
+      try {{
+        const payload = await response.json();
+        if (payload && payload.error) {{
+          errorText = String(payload.error);
+        }}
+      }} catch (_err) {{
+      }}
+      throw new Error(errorText);
+    }}
+    return await response.json();
   }};
   const maxEditorHeight = 240;
   const syncEditor = (editor) => {{
@@ -2815,6 +3085,34 @@ def _render_dashboard(
   document.addEventListener('click', async (event) => {{
     const button = event.target.closest('[data-copy-draft]');
     if (!button) {{
+      const finder = event.target.closest('[data-find-original-topics]');
+      if (finder) {{
+        try {{
+          setOriginalTopicsStatus('Scanning current signals and live web context for timely topics...', 'idle');
+          showBusy('Finding timely topics...');
+          const payload = await fetchOriginalTopicSuggestions(originalTopicInput ? originalTopicInput.value : '');
+          renderOriginalTopicSuggestions(payload.topic_suggestions || []);
+          setOriginalTopicsStatus('Review the suggestions below. If one is worth posting about, load it into the draft brief and adjust the angle before generating drafts.', 'ready');
+          showToast(payload.message || 'Timely topics loaded');
+        }} catch (error) {{
+          setOriginalTopicsStatus(escapeHtml(String(error.message || 'Topic discovery failed.')), 'error');
+          showToast('Topic discovery failed');
+        }} finally {{
+          hideBusy();
+        }}
+        return;
+      }}
+      const useSeedButton = event.target.closest('[data-use-original-seed]');
+      if (useSeedButton) {{
+        if (originalTopicInput) {{
+          originalTopicInput.value = useSeedButton.dataset.useOriginalSeed || '';
+          originalTopicInput.focus();
+          originalTopicInput.setSelectionRange(originalTopicInput.value.length, originalTopicInput.value.length);
+        }}
+        setOriginalTopicsStatus('Topic and suggested angle loaded into the draft brief. Edit it if you want a different take before generating drafts.', 'ready');
+        showToast('Loaded topic into draft brief');
+        return;
+      }}
       return;
     }}
     const draftId = button.dataset.draftId;

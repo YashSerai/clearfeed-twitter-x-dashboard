@@ -357,6 +357,70 @@ Return JSON only with keys:
             use_web_search=True,
         )
 
+    def suggest_original_post_topics(
+        self,
+        topic_hint: str,
+        signals: list[dict[str, Any]],
+        recent_original_drafts: list[str] | None = None,
+        limit: int = 5,
+    ) -> list[dict[str, str]]:
+        research_brief: dict[str, Any] = {}
+        if self.supports_web_search():
+            try:
+                research_brief = self.build_originals_research_brief(topic_hint, signals)
+            except Exception:
+                research_brief = {}
+        prompt = f"""
+You are helping the user decide what timely original X posts are worth writing.
+
+Current UTC timestamp:
+{datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")}
+
+Voice packet:
+{self.style_packet}
+
+Optional topic hint from the user:
+{topic_hint or "None"}
+
+Recent local signals:
+{json.dumps(signals, indent=2)}
+
+Recent original posts to avoid repeating:
+{json.dumps(recent_original_drafts or [], indent=2)}
+
+Live research brief:
+{json.dumps(research_brief, indent=2) if research_brief else "Not available"}
+
+Task:
+- Suggest exactly {limit} timely topics the user could post about right now.
+- Base them on current news, discourse, launches, arguments, or trend shifts, not evergreen filler.
+- Favor ideas relevant to AI, builders, products, infra, workflow, and market implications.
+- Each idea should be distinct.
+- Give the user a clear angle they could take, not just a topic headline.
+- Make the angle specific enough that a user can decide "yes, I want to post on this" or "no".
+
+Return JSON array only with keys:
+- title
+- why_now
+- suggested_angle
+- prompt_seed
+"""
+        raw = self.provider.generate_json(
+            self.config.ai_text_model,
+            prompt,
+            temperature=0.45,
+            use_web_search=self.supports_web_search(),
+        )
+        return [
+            {
+                "title": str(item.get("title", "")).strip(),
+                "why_now": str(item.get("why_now", "")).strip(),
+                "suggested_angle": str(item.get("suggested_angle", "")).strip(),
+                "prompt_seed": str(item.get("prompt_seed", "")).strip(),
+            }
+            for item in raw
+        ]
+
     def generate_original_posts(
         self,
         topic: str,

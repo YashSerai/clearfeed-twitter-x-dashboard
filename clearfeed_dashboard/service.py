@@ -150,6 +150,12 @@ class XAgentService:
             db.bootstrap(conn)
             return self._generate_original_post_drafts(conn, topic, notify_telegram=notify_telegram)
 
+    def suggest_original_post_topics(self, topic_hint: str = "", limit: int = 5) -> list[dict[str, str]]:
+        self._ensure_drafting_enabled()
+        with managed_connection(self.config.database_path) as conn:
+            db.bootstrap(conn)
+            return self._suggest_original_post_topics(conn, topic_hint=topic_hint, limit=limit)
+
     def import_x_archive(self, archive_dir: str) -> dict[str, Any]:
         archive_path, items, summary_text = import_archive(Path(archive_dir))
         summary_output = self.config.root / "profiles" / "generated" / "ARCHIVE_VOICE.md"
@@ -1029,6 +1035,37 @@ class XAgentService:
                 )
                 db.set_draft_message_id(conn, draft_id, int(message["message_id"]))
         return draft_ids
+
+    def _suggest_original_post_topics(
+        self,
+        conn: sqlite3.Connection,
+        topic_hint: str,
+        limit: int,
+    ) -> list[dict[str, str]]:
+        source_keys = [source.key for source in self.config.sources if source.use_for_original_posts]
+        signal_rows = db.fetch_recent_posts_for_originals(
+            conn,
+            source_keys=source_keys,
+            limit=self.config.worker.recent_signals_limit,
+        )
+        signals = [
+            {
+                "tweet_id": row["tweet_id"],
+                "source_key": row["source_key"],
+                "author_handle": row["author_handle"],
+                "text": row["text"],
+                "url": row["url"],
+                "linked_url": row["linked_url"],
+            }
+            for row in signal_rows
+        ]
+        recent_original_drafts = db.fetch_recent_original_draft_texts(conn, limit=max(limit * 2, 8))
+        return self.drafting.suggest_original_post_topics(
+            topic_hint=topic_hint,
+            signals=signals,
+            recent_original_drafts=recent_original_drafts,
+            limit=limit,
+        )
 
     def _ensure_drafting_enabled(self) -> None:
         if self.drafting is not None:

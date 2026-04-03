@@ -18,6 +18,7 @@ from clearfeed_dashboard.dashboard import (
     _mini_candidate_action,
     _mini_draft_action,
     _mini_original_action,
+    _mini_original_topics_action,
 )
 from clearfeed_dashboard.db import managed_connection
 from clearfeed_dashboard.service import XAgentService
@@ -71,6 +72,25 @@ class _FakeDrafting:
                 image_reason="Support the original post",
             )
             for _ in range(count)
+        ]
+
+    def suggest_original_post_topics(
+        self,
+        topic_hint: str,
+        signals: list[dict[str, object]],
+        recent_original_drafts: list[str] | None = None,
+        limit: int = 5,
+    ) -> list[dict[str, str]]:
+        _ = signals
+        _ = recent_original_drafts
+        return [
+            {
+                "title": f"Topic {index + 1}",
+                "why_now": "Fresh conversation in the signal pool.",
+                "suggested_angle": "Explain what builders should notice.",
+                "prompt_seed": f"{topic_hint or 'AI distribution'} | angle: explain what builders should notice",
+            }
+            for index in range(limit)
         ]
 
 
@@ -274,6 +294,10 @@ class TelegramMiniAppTests(unittest.TestCase):
 
                 original_result = _mini_original_action(service, {"topic": "AI distribution"})
                 self.assertIn("Created 1 original draft", original_result["message"])
+
+                topics_result = _mini_original_topics_action(service, {"topic_hint": "OpenAI model launches"})
+                self.assertEqual(len(topics_result["topic_suggestions"]), 5)
+                self.assertIn("Found 5 timely topic", topics_result["message"])
 
                 payload = _mini_bootstrap_payload(service, focus_candidate_id=candidate_id, focus_draft_id=draft_id)
                 self.assertEqual(payload["focus"]["candidate_id"], candidate_id)
