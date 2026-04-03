@@ -1,8 +1,8 @@
-$ErrorActionPreference = "Stop"
-
 param(
     [switch]$Quiet
 )
+
+$ErrorActionPreference = "Stop"
 
 function Get-CloudflaredCommand {
     $cmd = Get-Command cloudflared -ErrorAction SilentlyContinue
