@@ -90,12 +90,25 @@ What actually matters is the environment. Give the agent a bash VFS and normal C
 
 Fix: Watch for canned opener phrases like "The real win here is", "The key insight is", "What matters most is", "The interesting part is". Rewrite them into a more direct opening, or start with the concrete observation first. Do not let every tweet sound like it is introducing a thesis statement.
 
-7. Setup Then Reveal on Every Tweet
+7. Capability Laundry Lists
+The tell: The tweet explains why a model or company is good with a neat stack of confident claims that read like a product brief. It sounds informed, but it does not sound like a person replying in-feed.
+
+AI pattern:
+
+The reason Qwen is pulling these numbers is its edge in code generation and structured reasoning. It handles complex agentic loops and multi-step instruction following with way less laziness than other frontier models.
+
+Human version:
+
+Makes sense honestly. From what I've been hearing, Qwen has been pretty solid on code and more structured reasoning stuff, which is probably part of why usage is ramping this hard.
+
+Fix: When the point is partly inference, add attribution markers like "from what I've seen", "from what I've heard", "in my experience", "seems like", or "probably". Keep it to 1-2 grounded strengths. Do not stack polished capability claims like you are writing a benchmark summary.
+
+8. Setup Then Reveal on Every Tweet
 The tell: Every tweet withholds the interesting part and then reveals it. Real humans sometimes lead with the surprising bit.
 
 Fix: Sometimes lead with the surprise. Sometimes bury it. Vary the information architecture.
 
-8. Hashtag Placement
+9. Hashtag Placement
 The tell: Hashtags appended as a clean block are acceptable. The bigger tell is using generic tags instead of real community tags.
 
 Rules:
@@ -105,7 +118,7 @@ Community and niche tags beat generic volume tags
 Always include any branded or series hashtags the author explicitly requested
 Put hashtags at the end with breathing room
 
-9. Numbers That Sound Too Clean
+10. Numbers That Sound Too Clean
 The tell: "Achieved an 86% reduction" reads like a press release. "Cut it by like 86%" reads like a person.
 
 Fix: Lead with the concrete number, then give the percentage if it helps. Add a reaction when it feels natural.

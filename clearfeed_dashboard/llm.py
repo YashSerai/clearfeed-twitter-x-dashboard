@@ -68,6 +68,21 @@ Stronger reply:
 Why the stronger reply works:
 - It adds an edge case.
 - It disagrees productively instead of performing agreement.
+
+Example 5
+Target tweet:
+"Qwen 3.6 Plus is officially the first model on OpenRouter to break 1 Trillion tokens processed in a single day."
+
+Weak reply:
+"1.4T tokens in a day is a massive milestone. The reason Qwen is pulling these numbers is its edge in code generation and structured reasoning. It handles complex agentic loops and multi-step instruction following with way less laziness than other frontier models. Congrats to the Qwen team for hitting 1T."
+
+Stronger reply:
+"1.4T tokens in a day is a massive milestone. Also kind of tracks with what I've been hearing around Qwen lately. From the people I've talked to, it seems especially solid for code and more structured reasoning work, which probably helps a lot for agentic workflows too. Congrats to the Qwen team for hitting 1T."
+
+Why the stronger reply works:
+- It frames thin-evidence claims as personal observation instead of fact.
+- It sounds like an in-feed reaction, not a benchmark memo.
+- It keeps the point to one or two grounded claims instead of stacking a capability list.
 """.strip()
 
 VOICE_MD_BLUEPRINT = """
@@ -233,6 +248,7 @@ Reject drafts that do any of the following:
 - paraphrase the target tweet without adding anything new
 - flatter the original poster
 - sound like generic AI commentary
+- sound like a benchmark report, product brief, or vendor analyst memo
 - rely on vague agreement like "great point", "this is important", or "facts"
 - inject the user's product or identity when it is not clearly relevant
 - could be pasted under many unrelated tweets with only minor edits
@@ -248,6 +264,10 @@ Reject drafts that do any of the following:
 - If Expanded context from linked page is present, treat it as primary grounding material.
 - If Live web research is available, use it to understand the broader situation around the linked page, launch, claim, or company before drafting.
 - If User drafting guidance is present, treat it as the steering brief unless it would make the reply inaccurate.
+- If the source does not prove why a model, company, or product is good, do not present the reason as settled fact.
+- When the point is based on personal experience, industry chatter, or a cautious read of the situation, mark it that way in the wording.
+- Prefer phrasing like "from what I've seen", "from what I've heard", "in my experience", "seems like", or "probably" over unsupported confident claims.
+- For model or company news, keep inferred strengths to one or two grounded points instead of dumping a polished capability list.
 - Do not import recurring house themes unless the target tweet, linked context, or user guidance clearly earns them.
 - If the post is thin, keep the reply light and specific instead of forcing a big thesis.
 - Prefer one sharp point over multiple weak points.
