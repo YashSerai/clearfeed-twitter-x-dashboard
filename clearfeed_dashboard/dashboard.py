@@ -116,6 +116,29 @@ def run_dashboard(host: str = "127.0.0.1", port: int = 8787) -> None:
 
         def do_POST(self) -> None:  # noqa: N802
             parsed = urlparse(self.path)
+            if parsed.path == "/api/candidate-action":
+                try:
+                    payload = self._json_payload()
+                    result = _mini_candidate_action(service, payload)
+                    self._send_json(
+                        200,
+                        {
+                            "message": result["message"],
+                            "queue_snapshot": _queue_snapshot(
+                                database_path,
+                                draft_text_limit,
+                                drafting_enabled=service.config.drafting_enabled,
+                                image_generation_enabled=service.config.image_generation_enabled,
+                            ),
+                        },
+                    )
+                except RuntimeError as exc:
+                    self._send_json(400, {"error": str(exc)})
+                except (KeyError, ValueError, json.JSONDecodeError) as exc:
+                    self._send_json(400, {"error": str(exc)})
+                except Exception as exc:
+                    self._send_json(500, {"error": str(exc)})
+                return
             if parsed.path in {
                 "/api/mini/candidate-action",
                 "/api/mini/draft-action",
@@ -724,6 +747,49 @@ def _render_mini_app() -> str:
       margin-top: 14px; padding: 14px; border-radius: 16px; border: 1px solid rgba(255,255,255,.06);
       background: linear-gradient(180deg, rgba(255,255,255,.04), rgba(255,255,255,.02));
     }
+    .subcard.pending {
+      border-style: dashed;
+      border-color: rgba(105,219,255,.28);
+      background: linear-gradient(180deg, rgba(105,219,255,.08), rgba(255,255,255,.02));
+    }
+    .thinking-status {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      color: #c8ebf8;
+      font-size: 12px;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+    .thinking-status::before {
+      content: "";
+      width: 10px;
+      height: 10px;
+      border-radius: 999px;
+      background: rgba(105,219,255,.92);
+      box-shadow: 0 0 0 0 rgba(105,219,255,.3);
+      animation: pendingPulse 1.2s ease-out infinite;
+    }
+    .thinking-status-text::after {
+      content: "...";
+      display: inline-block;
+      width: 0;
+      overflow: hidden;
+      vertical-align: bottom;
+      animation: pendingDots 1.4s steps(4, end) infinite;
+    }
+    .pending-copy {
+      margin: 12px 0 0;
+      color: var(--muted);
+      line-height: 1.6;
+      white-space: pre-wrap;
+    }
+    .pending-meta {
+      margin-top: 10px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
     .message {
       margin: 0 0 12px;
       padding: 14px 16px;
@@ -762,6 +828,15 @@ def _render_mini_app() -> str:
     @keyframes shimmer {
       0% { background-position: 200% 0; }
       100% { background-position: -200% 0; }
+    }
+    @keyframes pendingPulse {
+      0% { transform: scale(.92); box-shadow: 0 0 0 0 rgba(105,219,255,.3); }
+      70% { transform: scale(1); box-shadow: 0 0 0 12px rgba(105,219,255,0); }
+      100% { transform: scale(.92); box-shadow: 0 0 0 0 rgba(105,219,255,0); }
+    }
+    @keyframes pendingDots {
+      0% { width: 0; }
+      100% { width: 1.4em; }
     }
     @media (max-width: 760px) {
       .hero-grid { grid-template-columns: 1fr; }
@@ -855,6 +930,7 @@ def _render_mini_app() -> str:
         activeView: focusView === 'originals' ? 'originals' : 'queue',
         busy: false,
         refreshTimer: null,
+        pendingCandidateDrafts: {},
       };
 
       const initHeaders = () => {
@@ -871,7 +947,10 @@ def _render_mini_app() -> str:
           if (button.id === 'tab-queue' || button.id === 'tab-originals') {
             return;
           }
-          button.disabled = busy;
+          if (button.dataset.initialDisabled === undefined) {
+            button.dataset.initialDisabled = button.disabled ? 'true' : 'false';
+          }
+          button.disabled = busy || button.dataset.initialDisabled === 'true';
         });
         if (webApp && webApp.MainButton) {
           if (busy) {
@@ -882,6 +961,11 @@ def _render_mini_app() -> str:
             webApp.MainButton.hideProgress();
             webApp.MainButton.hide();
           }
+        }
+        if (!busy) {
+          Object.keys(state.pendingCandidateDrafts).forEach((candidateId) => {
+            syncPendingMiniCandidateDraft(candidateId);
+          });
         }
       };
 
@@ -932,6 +1016,77 @@ def _render_mini_app() -> str:
         .replaceAll('<', '&lt;')
         .replaceAll('>', '&gt;')
         .replaceAll('\"', '&quot;');
+      const isCandidateDraftAction = (action) => action === 'draft_reply' || action === 'draft_quote';
+      const getPendingCandidateDraft = (candidateId) => state.pendingCandidateDrafts[String(candidateId)] || null;
+      const buildEmptyDraftCardHtml = () => `
+        <section class="subcard" data-empty-draft-card="true">
+          <div class="draft-head">
+            <div>
+              <div class="section-label">Draft</div>
+              <h3 style="margin:0 0 6px;">Reply Draft</h3>
+              <div class="meta">Nothing drafted yet.</div>
+            </div>
+          </div>
+          <div class="note">Use Draft Reply or Draft Quote and the response will appear here under the tweet.</div>
+        </section>
+      `;
+      const buildPendingDraftCardHtml = (candidateId, pending, hasExistingDraft = false) => {
+        const label = pending.action === 'draft_quote' ? 'Quote Reply' : 'Reply';
+        const brief = String(pending.brief || '').trim();
+        return `
+          <section class="subcard pending" data-pending-draft-card="${candidateId}">
+            <div class="draft-head">
+              <div>
+                <div class="section-label">Draft</div>
+                <h3 style="margin:0 0 6px;">${hasExistingDraft ? `Drafting Next ${label}` : `Latest ${label} Draft`}</h3>
+                <div class="meta">The draft number appears here as soon as generation finishes.</div>
+              </div>
+              <span class="pill">Thinking</span>
+            </div>
+            <div class="thinking-status"><span class="thinking-status-text">AI is thinking</span></div>
+            <p class="pending-copy">${brief ? escapeHtml(brief) : 'Clearfeed is building the draft from the tweet context and your current voice settings. You can keep drafting other replies while this one runs.'}</p>
+            <div class="pending-meta">${brief ? 'Using your current draft brief for this pass.' : 'No extra brief was added for this pass.'}</div>
+          </section>
+        `;
+      };
+      const syncPendingMiniCandidateDraft = (candidateId) => {
+        const pending = getPendingCandidateDraft(candidateId);
+        const card = document.querySelector(`[data-candidate-card="${candidateId}"]`);
+        if (card) {
+          card.querySelectorAll('[data-candidate-action]').forEach((button) => {
+            const isDraftButton = isCandidateDraftAction(button.getAttribute('data-candidate-action'));
+            const canGenerate = button.dataset.canGenerateDraft === 'true';
+            if (isDraftButton) {
+              button.disabled = Boolean(pending) || !canGenerate;
+            }
+          });
+        }
+        const slot = document.querySelector(`[data-candidate-draft-slot="${candidateId}"]`);
+        if (!slot) {
+          return;
+        }
+        const placeholder = slot.querySelector(`[data-pending-draft-card="${candidateId}"]`);
+        const hasLiveDraft = !!slot.querySelector('[data-live-draft-card="true"]');
+        if (!pending) {
+          if (placeholder) {
+            placeholder.remove();
+          }
+          if (!slot.children.length) {
+            slot.innerHTML = buildEmptyDraftCardHtml();
+          }
+          return;
+        }
+        if (hasLiveDraft) {
+          if (placeholder) {
+            placeholder.outerHTML = buildPendingDraftCardHtml(candidateId, pending, true);
+          } else {
+            slot.insertAdjacentHTML('beforeend', buildPendingDraftCardHtml(candidateId, pending, true));
+          }
+          return;
+        }
+        slot.innerHTML = buildPendingDraftCardHtml(candidateId, pending, false);
+      };
+      const hasPendingCandidateDrafts = () => Object.keys(state.pendingCandidateDrafts).length > 0;
 
       const copyText = async (text) => {
         await navigator.clipboard.writeText(text || '');
@@ -1024,6 +1179,7 @@ def _render_mini_app() -> str:
         const card = document.createElement('section');
         card.className = 'subcard';
         card.id = `draft-${draft.id}`;
+        card.dataset.liveDraftCard = 'true';
         card.innerHTML = `
           <div class="draft-head">
             <div>
@@ -1061,9 +1217,11 @@ def _render_mini_app() -> str:
           return;
         }
         payload.queue.forEach((candidate) => {
+          const pendingDraft = getPendingCandidateDraft(candidate.id);
           const card = document.createElement('article');
           card.className = 'card';
           card.id = `candidate-${candidate.id}`;
+          card.dataset.candidateCard = String(candidate.id);
           card.innerHTML = `
             <div class="candidate-top">
               <div>
@@ -1092,20 +1250,30 @@ def _render_mini_app() -> str:
               <div class="section-label">Draft Brief</div>
               <textarea data-candidate-brief="${candidate.id}" placeholder="State the angle, objection, tone, or structure you want the next draft to follow.">${escapeHtml(candidate.draft_generation_notes || '')}</textarea>
               <div class="actions">
-                <button type="button" class="ok" data-candidate-action="draft_reply" data-candidate-id="${candidate.id}" ${candidate.can_generate_draft ? '' : 'disabled'}>Draft Reply</button>
-                <button type="button" data-candidate-action="draft_quote" data-candidate-id="${candidate.id}" ${candidate.can_generate_draft ? '' : 'disabled'}>Draft Quote</button>
+                <button type="button" class="ok" data-candidate-action="draft_reply" data-candidate-id="${candidate.id}" data-can-generate-draft="${candidate.can_generate_draft ? 'true' : 'false'}" ${candidate.can_generate_draft && !pendingDraft ? '' : 'disabled'}>Draft Reply</button>
+                <button type="button" data-candidate-action="draft_quote" data-candidate-id="${candidate.id}" data-can-generate-draft="${candidate.can_generate_draft ? 'true' : 'false'}" ${candidate.can_generate_draft && !pendingDraft ? '' : 'disabled'}>Draft Quote</button>
                 <button type="button" class="ghost" data-candidate-action="watch" data-candidate-id="${candidate.id}">Watch</button>
                 <button type="button" class="bad" data-candidate-action="ignore" data-candidate-id="${candidate.id}">Dismiss</button>
               </div>
             </div>
+            <div data-candidate-draft-slot="${candidate.id}"></div>
           `;
           queueView.appendChild(card);
+          const draftSlot = card.querySelector(`[data-candidate-draft-slot="${candidate.id}"]`);
+          if (!draftSlot) {
+            return;
+          }
           if (candidate.draft) {
             renderDraftCard(candidate.draft, {
-              parent: card,
+              parent: draftSlot,
               title: `Latest Draft #${candidate.draft.id}`,
               generationNotes: candidate.draft.generation_notes || '',
             });
+          } else {
+            draftSlot.innerHTML = buildEmptyDraftCardHtml();
+          }
+          if (pendingDraft) {
+            syncPendingMiniCandidateDraft(candidate.id);
           }
         });
       };
@@ -1244,7 +1412,7 @@ def _render_mini_app() -> str:
       };
 
       const maybeAutoRefresh = async () => {
-        if (state.busy || !state.payload) {
+        if (state.busy || hasPendingCandidateDrafts() || !state.payload) {
           return;
         }
         if (document.hidden) {
@@ -1330,10 +1498,45 @@ def _render_mini_app() -> str:
         }
         const candidateAction = target.getAttribute('data-candidate-action');
         if (candidateAction) {
-          const candidateId = target.getAttribute('data-candidate-id');
+          const candidateId = String(target.getAttribute('data-candidate-id') || '');
+          if (!candidateId) {
+            return;
+          }
           const brief = document.querySelector(`[data-candidate-brief="${candidateId}"]`);
+          if (isCandidateDraftAction(candidateAction)) {
+            if (getPendingCandidateDraft(candidateId)) {
+              return;
+            }
+            state.pendingCandidateDrafts[candidateId] = {
+              action: candidateAction,
+              brief: brief ? brief.value : '',
+            };
+            syncPendingMiniCandidateDraft(candidateId);
+            try {
+              const payload = await request('/api/mini/candidate-action', {
+                method: 'POST',
+                body: JSON.stringify({
+                  candidate_id: Number(candidateId),
+                  action: candidateAction,
+                  draft_guidance: brief ? brief.value : '',
+                }),
+              });
+              delete state.pendingCandidateDrafts[candidateId];
+              render(payload);
+              setMessage(payload.message || 'Candidate updated.');
+            } catch (error) {
+              delete state.pendingCandidateDrafts[candidateId];
+              syncPendingMiniCandidateDraft(candidateId);
+              setMessage(error.message, true);
+            }
+            return;
+          }
           try {
-            setBusy(true, candidateAction === 'draft_quote' ? 'Drafting quote...' : 'Drafting reply...');
+            const actionLabels = {
+              watch: 'Saving watch status...',
+              ignore: 'Dismissing candidate...',
+            };
+            setBusy(true, actionLabels[candidateAction] || (candidateAction === 'draft_quote' ? 'Drafting quote...' : 'Drafting reply...'));
             const payload = await request('/api/mini/candidate-action', {
               method: 'POST',
               body: JSON.stringify({
@@ -2470,6 +2673,11 @@ def _render_dashboard(
       padding: 16px;
       background: linear-gradient(180deg, rgba(8,13,20,.92), rgba(13,20,29,.92));
     }}
+    .draft-inline.draft-inline-pending {{
+      border-style: dashed;
+      border-color: rgba(119,225,255,.28);
+      background: linear-gradient(180deg, rgba(14, 28, 40, 0.94), rgba(8, 18, 28, 0.94));
+    }}
     .draft-inline.draft-focus,
     .original-card.draft-focus {{
       border-color: rgba(119,225,255,.5);
@@ -2478,6 +2686,44 @@ def _render_dashboard(
     .draft-inline-empty {{
       border-style: dashed;
       color: var(--muted);
+    }}
+    .draft-inline-thinking {{
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      color: #c8ebf8;
+      font-size: 13px;
+      letter-spacing: .04em;
+      text-transform: uppercase;
+    }}
+    .draft-inline-thinking::before {{
+      content: "";
+      width: 10px;
+      height: 10px;
+      border-radius: 999px;
+      background: rgba(119,225,255,.9);
+      box-shadow: 0 0 0 0 rgba(119,225,255,.3);
+      animation: pendingPulse 1.2s ease-out infinite;
+    }}
+    .draft-inline-typing::after {{
+      content: "...";
+      display: inline-block;
+      width: 0;
+      overflow: hidden;
+      vertical-align: bottom;
+      animation: pendingDots 1.4s steps(4, end) infinite;
+    }}
+    .draft-inline-pending-copy {{
+      margin: 12px 0 0;
+      color: var(--muted);
+      line-height: 1.65;
+      white-space: pre-wrap;
+    }}
+    .draft-inline-pending-meta {{
+      margin-top: 10px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
     }}
     .draft-inline-header {{
       display: flex;
@@ -2655,6 +2901,24 @@ def _render_dashboard(
     .toast.is-visible {{
       opacity: 1;
       transform: translateY(0);
+    }}
+    @keyframes pendingPulse {{
+      0% {{
+        transform: scale(.92);
+        box-shadow: 0 0 0 0 rgba(119,225,255,.3);
+      }}
+      70% {{
+        transform: scale(1);
+        box-shadow: 0 0 0 12px rgba(119,225,255,0);
+      }}
+      100% {{
+        transform: scale(.92);
+        box-shadow: 0 0 0 0 rgba(119,225,255,0);
+      }}
+    }}
+    @keyframes pendingDots {{
+      0% {{ width: 0; }}
+      100% {{ width: 1.4em; }}
     }}
     @keyframes spin {{
       to {{ transform: rotate(360deg); }}
@@ -2968,6 +3232,81 @@ def _render_dashboard(
     .replaceAll('<', '&lt;')
     .replaceAll('>', '&gt;')
     .replaceAll('"', '&quot;');
+  const pendingQueueCandidateDrafts = new Map();
+  const isQueueDraftAction = (action) => action === 'draft_reply' || action === 'draft_quote';
+  const buildPendingDraftCardHtml = (pending, hasExistingDraft = false) => {{
+    const label = pending.action === 'draft_quote' ? 'Quote Reply' : 'Reply';
+    const brief = String(pending.brief || '').trim();
+    return `
+      <section class="draft-inline draft-inline-pending" data-pending-draft-card="${{pending.candidateId}}">
+        <div class="draft-inline-header">
+          <div>
+            <h3>${{hasExistingDraft ? `Drafting Next ${{label}}` : `Latest ${label} Draft`}}</h3>
+            <div class="draft-inline-note">The next draft id will appear here as soon as generation finishes.</div>
+          </div>
+          <span class="pill pill-accent">Thinking</span>
+        </div>
+        <div class="draft-inline-thinking"><span class="draft-inline-typing">AI is thinking</span></div>
+        <p class="draft-inline-pending-copy">${{brief ? escapeHtml(brief) : 'Clearfeed is building the draft from the tweet context and your current voice settings. You can keep drafting other replies while this one runs.'}}</p>
+        <div class="draft-inline-pending-meta">${{brief ? 'Using the brief above for this pass.' : 'No extra brief was added for this pass.'}}</div>
+      </section>
+    `;
+  }};
+  const syncQueueCandidateDraftState = (candidateId) => {{
+    const pending = pendingQueueCandidateDrafts.get(String(candidateId));
+    const form = document.querySelector(`[data-candidate-form][data-candidate-id="${{candidateId}}"]`);
+    if (form) {{
+      form.querySelectorAll('button[type="submit"]').forEach((button) => {{
+        if (button.dataset.initialDisabled === undefined) {{
+          button.dataset.initialDisabled = button.disabled ? 'true' : 'false';
+        }}
+        if (isQueueDraftAction(button.value)) {{
+          button.disabled = Boolean(pending) || button.dataset.initialDisabled === 'true';
+        }}
+      }});
+    }}
+    const slot = document.querySelector(`[data-candidate-draft-slot="${{candidateId}}"]`);
+    if (!slot) {{
+      return;
+    }}
+    const liveDraft = slot.querySelector('[data-live-draft-card="true"]');
+    const placeholder = slot.querySelector(`[data-pending-draft-card="${{candidateId}}"]`);
+    if (!pending) {{
+      if (placeholder) {{
+        placeholder.remove();
+      }}
+      return;
+    }}
+    if (liveDraft) {{
+      if (placeholder) {{
+        placeholder.outerHTML = buildPendingDraftCardHtml(pending, true);
+      }} else {{
+        slot.insertAdjacentHTML('beforeend', buildPendingDraftCardHtml(pending, true));
+      }}
+      return;
+    }}
+    slot.innerHTML = buildPendingDraftCardHtml(pending, false);
+  }};
+  const syncAllQueueCandidateDraftStates = () => {{
+    pendingQueueCandidateDrafts.forEach((_pending, candidateId) => {{
+      syncQueueCandidateDraftState(candidateId);
+    }});
+  }};
+  const requestDashboardCandidateAction = async (payload) => {{
+    const response = await fetch('/api/candidate-action', {{
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: {{
+        'Content-Type': 'application/json',
+      }},
+      body: JSON.stringify(payload),
+    }});
+    const result = await response.json();
+    if (!response.ok) {{
+      throw new Error(result.error || 'Candidate request failed.');
+    }}
+    return result;
+  }};
   const originalTopicInput = document.querySelector('[data-original-topic-input]');
   const originalTopicsStatus = document.querySelector('[data-original-topics-status]');
   const originalTopicsRoot = document.querySelector('[data-original-topics]');
@@ -3061,7 +3400,7 @@ def _render_dashboard(
         return;
       }}
       form.dataset.bound = 'true';
-      form.addEventListener('submit', (event) => {{
+      form.addEventListener('submit', async (event) => {{
         let editor = form.querySelector('[data-draft-editor]');
         const draftIdField = form.querySelector('input[name="draft_id"]');
         const hiddenDraftText = form.querySelector('input[name="draft_text"]');
@@ -3074,8 +3413,46 @@ def _render_dashboard(
         if (editor) {{
           editor.dataset.dirty = 'false';
         }}
-        saveScroll();
         const submitter = event.submitter;
+        const actionValue = (submitter && submitter.value) || '';
+        if (form.matches('[data-candidate-form]') && isQueueDraftAction(actionValue)) {{
+          event.preventDefault();
+          const candidateId = String(form.dataset.candidateId || '');
+          if (!candidateId || pendingQueueCandidateDrafts.has(candidateId)) {{
+            return;
+          }}
+          const briefField = form.querySelector('textarea[name="draft_guidance"]');
+          const slot = document.querySelector(`[data-candidate-draft-slot="${{candidateId}}"]`);
+          pendingQueueCandidateDrafts.set(candidateId, {{
+            candidateId,
+            action: actionValue,
+            brief: briefField ? briefField.value : '',
+            previousHtml: slot ? slot.innerHTML : '',
+          }});
+          syncQueueCandidateDraftState(candidateId);
+          try {{
+            const result = await requestDashboardCandidateAction({{
+              candidate_id: Number(candidateId),
+              action: actionValue,
+              draft_guidance: briefField ? briefField.value : '',
+            }});
+            pendingQueueCandidateDrafts.delete(candidateId);
+            if (result.queue_snapshot) {{
+              applyQueueSnapshot(result.queue_snapshot);
+            }}
+            showToast(result.message || 'Draft queued.');
+          }} catch (error) {{
+            const pending = pendingQueueCandidateDrafts.get(candidateId);
+            pendingQueueCandidateDrafts.delete(candidateId);
+            if (slot && pending && typeof pending.previousHtml === 'string') {{
+              slot.innerHTML = pending.previousHtml;
+            }}
+            syncQueueCandidateDraftState(candidateId);
+            showToast(String(error.message || 'Draft request failed.'));
+          }}
+          return;
+        }}
+        saveScroll();
         const busyLabel = (submitter && submitter.dataset.busyLabel) || form.dataset.busyLabel || 'Working...';
         showBusy(busyLabel);
       }});
@@ -3372,6 +3749,7 @@ def _render_dashboard(
     }}
     bindDraftEditorsAndForms(queueRoot);
     initializeQueue();
+    syncAllQueueCandidateDraftStates();
     setQueueRefreshPrompt(false);
   }};
 
@@ -3394,6 +3772,9 @@ def _render_dashboard(
   const maybeRefreshQueue = async (force = false) => {{
     const queueRoot = document.querySelector('[data-queue-root]');
     if (!queueRoot) {{
+      return;
+    }}
+    if (!force && pendingQueueCandidateDrafts.size) {{
       return;
     }}
     const currentVersion = queueRoot.dataset.queueVersion || '';
@@ -3860,7 +4241,7 @@ def _candidate_card(
     attempts = "No drafts yet" if draft_count == 0 else f"{draft_count} draft{'s' if draft_count != 1 else ''} on this tweet"
     tweet_text = _escape((row["text"] or "").strip() or "No text captured for this tweet.")
     return (
-        f'<article class="queue-card" id="candidate-{row["id"]}" data-queue-card data-card-id="{row["id"]}">'
+        f'<article class="queue-card" id="candidate-{row["id"]}" data-queue-card data-card-id="{row["id"]}" data-candidate-card-id="{row["id"]}">'
         '<div class="queue-card-main">'
         '<section class="tweet-shell">'
         '<div class="eyebrow">'
@@ -3880,7 +4261,7 @@ def _candidate_card(
         '</div>'
         '</section>'
         f"{_candidate_action_form(row, drafting_enabled)}"
-        f"{_candidate_draft_panel(row, draft_text_limit, drafting_enabled, image_generation_enabled)}"
+        f'<div class="draft-inline-slot" data-candidate-draft-slot="{row["id"]}">{_candidate_draft_panel(row, draft_text_limit, drafting_enabled, image_generation_enabled)}</div>'
         '</div>'
         '<aside class="queue-card-side">'
         '<section class="side-panel">'
@@ -3910,7 +4291,7 @@ def _candidate_action_form(row: sqlite3.Row, drafting_enabled: bool) -> str:
         else '<div class="inline-warning">Drafting is disabled until the selected AI provider is configured.</div>'
     )
     return (
-        '<form method="post" action="/candidate" class="candidate-form">'
+        f'<form method="post" action="/candidate" class="candidate-form" data-candidate-form data-candidate-id="{row["id"]}">'
         f'<input type="hidden" name="candidate_id" value="{row["id"]}">'
         f'<label class="candidate-guidance-label" for="candidate-guidance-{row["id"]}">Draft Brief</label>'
         f'<textarea id="candidate-guidance-{row["id"]}" name="draft_guidance" class="candidate-guidance" placeholder="What are you thinking? Add the angle, objection, or structure you want the draft to lean into.">{guidance_value}</textarea>'
@@ -3935,7 +4316,7 @@ def _candidate_draft_panel(
 ) -> str:
     if not row["draft_id"]:
         return (
-            '<section class="draft-inline draft-inline-empty">'
+            '<section class="draft-inline draft-inline-empty" data-empty-draft-card="true">'
             '<div class="draft-inline-header">'
             '<div><h3>Reply Draft</h3><div class="draft-inline-note">Nothing drafted yet. Use Draft Reply or Draft Quote and the response will appear here under the tweet.</div></div>'
             '</div>'
@@ -3969,7 +4350,7 @@ def _candidate_draft_panel(
         image_generation_enabled=image_generation_enabled,
     )
     return (
-        f'<section class="draft-inline" id="draft-{draft_id}">'
+        f'<section class="draft-inline" id="draft-{draft_id}" data-live-draft-card="true">'
         '<div class="draft-inline-header">'
         f'<div><h3>Latest Draft #{draft_id}</h3><div class="draft-inline-note">{" | ".join(note_bits)}</div></div>'
         f'<span class="pill {_pill_class(draft_status)}">{_escape(_status_label(draft_status))}</span>'
@@ -4009,7 +4390,7 @@ def _original_draft_card(
         else ""
     )
     return (
-        f'<article class="original-card" id="draft-{row["id"]}">'
+        f'<article class="original-card" id="draft-{row["id"]}" data-live-draft-card="true">'
         '<div class="draft-inline-header">'
         f'<div><h3>Original Draft #{row["id"]}</h3><div class="draft-inline-note">{" | ".join(note_bits)}</div></div>'
         f'<span class="pill {_pill_class(row["status"])}">{_escape(_status_label(row["status"]))}</span>'
