@@ -139,6 +139,29 @@ def run_dashboard(host: str = "127.0.0.1", port: int = 8787) -> None:
                 except Exception as exc:
                     self._send_json(500, {"error": str(exc)})
                 return
+            if parsed.path == "/api/draft-action":
+                try:
+                    payload = self._json_payload()
+                    result = _mini_draft_action(service, payload)
+                    self._send_json(
+                        200,
+                        {
+                            "message": result["message"],
+                            "queue_snapshot": _queue_snapshot(
+                                database_path,
+                                draft_text_limit,
+                                drafting_enabled=service.config.drafting_enabled,
+                                image_generation_enabled=service.config.image_generation_enabled,
+                            ),
+                        },
+                    )
+                except RuntimeError as exc:
+                    self._send_json(400, {"error": str(exc)})
+                except (KeyError, ValueError, json.JSONDecodeError) as exc:
+                    self._send_json(400, {"error": str(exc)})
+                except Exception as exc:
+                    self._send_json(500, {"error": str(exc)})
+                return
             if parsed.path in {
                 "/api/mini/candidate-action",
                 "/api/mini/draft-action",
@@ -931,6 +954,8 @@ def _render_mini_app() -> str:
         busy: false,
         refreshTimer: null,
         pendingCandidateDrafts: {},
+        pendingCandidateActions: {},
+        pendingDraftActions: {},
       };
 
       const initHeaders = () => {
@@ -965,6 +990,12 @@ def _render_mini_app() -> str:
         if (!busy) {
           Object.keys(state.pendingCandidateDrafts).forEach((candidateId) => {
             syncPendingMiniCandidateDraft(candidateId);
+          });
+          Object.keys(state.pendingCandidateActions).forEach((candidateId) => {
+            syncPendingMiniCandidateAction(candidateId);
+          });
+          Object.keys(state.pendingDraftActions).forEach((draftId) => {
+            syncPendingMiniDraftAction(draftId);
           });
         }
       };
@@ -1017,7 +1048,11 @@ def _render_mini_app() -> str:
         .replaceAll('>', '&gt;')
         .replaceAll('\"', '&quot;');
       const isCandidateDraftAction = (action) => action === 'draft_reply' || action === 'draft_quote';
+      const isCandidateAsyncAction = (action) => ['watch', 'ignore'].includes(action);
+      const isDraftAsyncAction = (action) => ['save_text', 'manual', 'reject', 'image'].includes(action);
       const getPendingCandidateDraft = (candidateId) => state.pendingCandidateDrafts[String(candidateId)] || null;
+      const getPendingCandidateAction = (candidateId) => state.pendingCandidateActions[String(candidateId)] || null;
+      const getPendingDraftAction = (draftId) => state.pendingDraftActions[String(draftId)] || null;
       const buildEmptyDraftCardHtml = () => `
         <section class="subcard" data-empty-draft-card="true">
           <div class="draft-head">
@@ -1057,7 +1092,7 @@ def _render_mini_app() -> str:
             const isDraftButton = isCandidateDraftAction(button.getAttribute('data-candidate-action'));
             const canGenerate = button.dataset.canGenerateDraft === 'true';
             if (isDraftButton) {
-              button.disabled = Boolean(pending) || !canGenerate;
+              button.disabled = Boolean(pending) || Boolean(getPendingCandidateAction(candidateId)) || !canGenerate;
             }
           });
         }
@@ -1086,7 +1121,84 @@ def _render_mini_app() -> str:
         }
         slot.innerHTML = buildPendingDraftCardHtml(candidateId, pending, false);
       };
-      const hasPendingCandidateDrafts = () => Object.keys(state.pendingCandidateDrafts).length > 0;
+      const syncPendingMiniCandidateAction = (candidateId) => {
+        const pending = getPendingCandidateAction(candidateId);
+        const card = document.querySelector(`[data-candidate-card="${candidateId}"]`);
+        if (!card) {
+          return;
+        }
+        card.classList.toggle('is-pending', Boolean(pending));
+        card.querySelectorAll('[data-candidate-action]').forEach((button) => {
+          const action = button.getAttribute('data-candidate-action');
+          const canGenerate = button.dataset.canGenerateDraft === 'true';
+          if (isCandidateDraftAction(action)) {
+            button.disabled = Boolean(pending) || Boolean(getPendingCandidateDraft(candidateId)) || !canGenerate;
+            return;
+          }
+          if (isCandidateAsyncAction(action)) {
+            button.disabled = Boolean(pending);
+          }
+        });
+        let note = card.querySelector('[data-mini-candidate-pending]');
+        if (!pending) {
+          if (note) {
+            note.remove();
+          }
+          return;
+        }
+        if (!note) {
+          note = document.createElement('div');
+          note.className = 'pending-meta';
+          note.dataset.miniCandidatePending = 'true';
+          const draftBox = card.querySelector('.draft-box');
+          if (draftBox) {
+            draftBox.appendChild(note);
+          }
+        }
+        if (note) {
+          note.textContent = pending.label || 'Updating candidate...';
+        }
+      };
+      const syncPendingMiniDraftAction = (draftId) => {
+        const pending = getPendingDraftAction(draftId);
+        const card = document.querySelector(`[data-draft-card="${draftId}"]`);
+        if (!card) {
+          return;
+        }
+        card.classList.toggle('pending', Boolean(pending));
+        const textarea = card.querySelector(`[data-draft-text="${draftId}"]`);
+        if (textarea) {
+          if (textarea.dataset.initialReadOnly === undefined) {
+            textarea.dataset.initialReadOnly = textarea.readOnly ? 'true' : 'false';
+          }
+          textarea.readOnly = Boolean(pending) || textarea.dataset.initialReadOnly === 'true';
+        }
+        card.querySelectorAll('[data-draft-action], [data-copy-draft]').forEach((button) => {
+          if (button.dataset.initialDisabled === undefined) {
+            button.dataset.initialDisabled = button.disabled ? 'true' : 'false';
+          }
+          button.disabled = Boolean(pending) || (button.dataset.initialDisabled === 'true' && button.hasAttribute('data-draft-action'));
+        });
+        let note = card.querySelector('[data-mini-draft-pending]');
+        if (!pending) {
+          if (note) {
+            note.remove();
+          }
+          return;
+        }
+        if (!note) {
+          note = document.createElement('div');
+          note.className = 'pending-meta';
+          note.dataset.miniDraftPending = 'true';
+          card.appendChild(note);
+        }
+        note.textContent = pending.label || 'Updating draft...';
+      };
+      const hasPendingInlineActions = () => (
+        Object.keys(state.pendingCandidateDrafts).length +
+        Object.keys(state.pendingCandidateActions).length +
+        Object.keys(state.pendingDraftActions).length
+      ) > 0;
 
       const copyText = async (text) => {
         await navigator.clipboard.writeText(text || '');
@@ -1176,10 +1288,12 @@ def _render_mini_app() -> str:
       };
 
       const renderDraftCard = (draft, { parent, title, generationNotes = '' }) => {
+        const pendingDraftAction = getPendingDraftAction(draft.id);
         const card = document.createElement('section');
-        card.className = 'subcard';
+        card.className = `subcard${pendingDraftAction ? ' pending' : ''}`;
         card.id = `draft-${draft.id}`;
         card.dataset.liveDraftCard = 'true';
+        card.dataset.draftCard = String(draft.id);
         card.innerHTML = `
           <div class="draft-head">
             <div>
@@ -1199,15 +1313,18 @@ def _render_mini_app() -> str:
             </div>
             ${draft.has_image_path ? `<div class="note" style="margin-top:8px;">Generated image saved at ${escapeHtml(draft.image_path)}</div>` : ''}
             <div class="actions">
-              ${draft.is_editable ? `<button type="button" class="ghost" data-draft-action="save_text" data-draft-id="${draft.id}">Save Draft</button>` : ''}
-              <button type="button" class="ghost" data-copy-draft="${draft.id}">Copy</button>
-              ${draft.is_editable ? `<button type="button" class="ok" data-draft-action="manual" data-draft-id="${draft.id}">Mark Posted</button>` : ''}
-              ${draft.is_editable ? `<button type="button" class="bad" data-draft-action="reject" data-draft-id="${draft.id}">Reject</button>` : ''}
-              ${draft.can_generate_image ? `<button type="button" data-draft-action="image" data-draft-id="${draft.id}">Generate Image</button>` : ''}
+              ${draft.is_editable ? `<button type="button" class="ghost" data-draft-action="save_text" data-draft-id="${draft.id}" ${pendingDraftAction ? 'disabled' : ''}>Save Draft</button>` : ''}
+              <button type="button" class="ghost" data-copy-draft="${draft.id}" ${pendingDraftAction ? 'disabled' : ''}>Copy</button>
+              ${draft.is_editable ? `<button type="button" class="ok" data-draft-action="manual" data-draft-id="${draft.id}" ${pendingDraftAction ? 'disabled' : ''}>Mark Posted</button>` : ''}
+              ${draft.is_editable ? `<button type="button" class="bad" data-draft-action="reject" data-draft-id="${draft.id}" ${pendingDraftAction ? 'disabled' : ''}>Reject</button>` : ''}
+              ${draft.can_generate_image ? `<button type="button" data-draft-action="image" data-draft-id="${draft.id}" ${pendingDraftAction ? 'disabled' : ''}>Generate Image</button>` : ''}
             </div>
           </div>
         `;
         parent.appendChild(card);
+        if (pendingDraftAction) {
+          syncPendingMiniDraftAction(draft.id);
+        }
       };
 
       const renderQueue = (payload) => {
@@ -1218,8 +1335,9 @@ def _render_mini_app() -> str:
         }
         payload.queue.forEach((candidate) => {
           const pendingDraft = getPendingCandidateDraft(candidate.id);
+          const pendingAction = getPendingCandidateAction(candidate.id);
           const card = document.createElement('article');
-          card.className = 'card';
+          card.className = `card${pendingAction ? ' is-pending' : ''}`;
           card.id = `candidate-${candidate.id}`;
           card.dataset.candidateCard = String(candidate.id);
           card.innerHTML = `
@@ -1250,10 +1368,10 @@ def _render_mini_app() -> str:
               <div class="section-label">Draft Brief</div>
               <textarea data-candidate-brief="${candidate.id}" placeholder="State the angle, objection, tone, or structure you want the next draft to follow.">${escapeHtml(candidate.draft_generation_notes || '')}</textarea>
               <div class="actions">
-                <button type="button" class="ok" data-candidate-action="draft_reply" data-candidate-id="${candidate.id}" data-can-generate-draft="${candidate.can_generate_draft ? 'true' : 'false'}" ${candidate.can_generate_draft && !pendingDraft ? '' : 'disabled'}>Draft Reply</button>
-                <button type="button" data-candidate-action="draft_quote" data-candidate-id="${candidate.id}" data-can-generate-draft="${candidate.can_generate_draft ? 'true' : 'false'}" ${candidate.can_generate_draft && !pendingDraft ? '' : 'disabled'}>Draft Quote</button>
-                <button type="button" class="ghost" data-candidate-action="watch" data-candidate-id="${candidate.id}">Watch</button>
-                <button type="button" class="bad" data-candidate-action="ignore" data-candidate-id="${candidate.id}">Dismiss</button>
+                <button type="button" class="ok" data-candidate-action="draft_reply" data-candidate-id="${candidate.id}" data-can-generate-draft="${candidate.can_generate_draft ? 'true' : 'false'}" ${candidate.can_generate_draft && !pendingDraft && !pendingAction ? '' : 'disabled'}>Draft Reply</button>
+                <button type="button" data-candidate-action="draft_quote" data-candidate-id="${candidate.id}" data-can-generate-draft="${candidate.can_generate_draft ? 'true' : 'false'}" ${candidate.can_generate_draft && !pendingDraft && !pendingAction ? '' : 'disabled'}>Draft Quote</button>
+                <button type="button" class="ghost" data-candidate-action="watch" data-candidate-id="${candidate.id}" ${pendingAction ? 'disabled' : ''}>Watch</button>
+                <button type="button" class="bad" data-candidate-action="ignore" data-candidate-id="${candidate.id}" ${pendingAction ? 'disabled' : ''}>Dismiss</button>
               </div>
             </div>
             <div data-candidate-draft-slot="${candidate.id}"></div>
@@ -1274,6 +1392,9 @@ def _render_mini_app() -> str:
           }
           if (pendingDraft) {
             syncPendingMiniCandidateDraft(candidate.id);
+          }
+          if (pendingAction) {
+            syncPendingMiniCandidateAction(candidate.id);
           }
         });
       };
@@ -1377,6 +1498,15 @@ def _render_mini_app() -> str:
         originalsView.style.display = queueActive ? 'none' : 'grid';
         tabQueue.classList.toggle('active', queueActive);
         tabOriginals.classList.toggle('active', !queueActive);
+        Object.keys(state.pendingCandidateDrafts).forEach((candidateId) => {
+          syncPendingMiniCandidateDraft(candidateId);
+        });
+        Object.keys(state.pendingCandidateActions).forEach((candidateId) => {
+          syncPendingMiniCandidateAction(candidateId);
+        });
+        Object.keys(state.pendingDraftActions).forEach((draftId) => {
+          syncPendingMiniDraftAction(draftId);
+        });
         focusElementIfPresent();
       };
 
@@ -1412,7 +1542,7 @@ def _render_mini_app() -> str:
       };
 
       const maybeAutoRefresh = async () => {
-        if (state.busy || hasPendingCandidateDrafts() || !state.payload) {
+        if (state.busy || hasPendingInlineActions() || !state.payload) {
           return;
         }
         if (document.hidden) {
@@ -1531,6 +1661,38 @@ def _render_mini_app() -> str:
             }
             return;
           }
+          if (isCandidateAsyncAction(candidateAction)) {
+            if (getPendingCandidateAction(candidateId)) {
+              return;
+            }
+            const actionLabels = {
+              watch: 'Saving watch status...',
+              ignore: 'Dismissing candidate...',
+            };
+            state.pendingCandidateActions[candidateId] = {
+              action: candidateAction,
+              label: actionLabels[candidateAction] || 'Updating candidate...',
+            };
+            syncPendingMiniCandidateAction(candidateId);
+            try {
+              const payload = await request('/api/mini/candidate-action', {
+                method: 'POST',
+                body: JSON.stringify({
+                  candidate_id: Number(candidateId),
+                  action: candidateAction,
+                  draft_guidance: brief ? brief.value : '',
+                }),
+              });
+              delete state.pendingCandidateActions[candidateId];
+              render(payload);
+              setMessage(payload.message || 'Candidate updated.');
+            } catch (error) {
+              delete state.pendingCandidateActions[candidateId];
+              syncPendingMiniCandidateAction(candidateId);
+              setMessage(error.message, true);
+            }
+            return;
+          }
           try {
             const actionLabels = {
               watch: 'Saving watch status...',
@@ -1557,6 +1719,9 @@ def _render_mini_app() -> str:
         const draftAction = target.getAttribute('data-draft-action');
         if (draftAction) {
           const draftId = target.getAttribute('data-draft-id');
+          if (!draftId) {
+            return;
+          }
           const textarea = document.querySelector(`[data-draft-text="${draftId}"]`);
           const actionLabels = {
             save_text: 'Saving draft...',
@@ -1564,6 +1729,34 @@ def _render_mini_app() -> str:
             reject: 'Rejecting draft...',
             image: 'Generating image...',
           };
+          if (isDraftAsyncAction(draftAction)) {
+            if (getPendingDraftAction(draftId)) {
+              return;
+            }
+            state.pendingDraftActions[draftId] = {
+              action: draftAction,
+              label: actionLabels[draftAction] || 'Updating draft...',
+            };
+            syncPendingMiniDraftAction(draftId);
+            try {
+              const payload = await request('/api/mini/draft-action', {
+                method: 'POST',
+                body: JSON.stringify({
+                  draft_id: Number(draftId),
+                  action: draftAction,
+                  draft_text: textarea ? textarea.value : '',
+                }),
+              });
+              delete state.pendingDraftActions[draftId];
+              render(payload);
+              setMessage(payload.message || 'Draft updated.');
+            } catch (error) {
+              delete state.pendingDraftActions[draftId];
+              syncPendingMiniDraftAction(draftId);
+              setMessage(error.message, true);
+            }
+            return;
+          }
           try {
             setBusy(true, actionLabels[draftAction] || 'Updating draft...');
             const payload = await request('/api/mini/draft-action', {
@@ -2725,6 +2918,17 @@ def _render_dashboard(
       font-size: 12px;
       line-height: 1.45;
     }}
+    .inline-pending-note {{
+      margin-top: 10px;
+      color: #c8ebf8;
+      font-size: 12px;
+      line-height: 1.45;
+    }}
+    .queue-card.is-pending .tweet-shell,
+    .queue-card.is-pending .side-panel,
+    .draft-inline.is-pending {{
+      opacity: .74;
+    }}
     .draft-inline-header {{
       display: flex;
       justify-content: space-between;
@@ -3233,7 +3437,14 @@ def _render_dashboard(
     .replaceAll('>', '&gt;')
     .replaceAll('"', '&quot;');
   const pendingQueueCandidateDrafts = new Map();
+  const pendingQueueCandidateActions = new Map();
+  const pendingQueueDraftActions = new Map();
   const isQueueDraftAction = (action) => action === 'draft_reply' || action === 'draft_quote';
+  const isQueueCandidateAsyncAction = (action) => ['watch', 'ignore'].includes(action);
+  const isQueueDraftAsyncAction = (action) => ['save_text', 'manual', 'reject', 'image'].includes(action);
+  const hasPendingQueueActions = () => (
+    pendingQueueCandidateDrafts.size + pendingQueueCandidateActions.size + pendingQueueDraftActions.size
+  ) > 0;
   const buildPendingDraftCardHtml = (pending, hasExistingDraft = false) => {{
     const label = pending.action === 'draft_quote' ? 'Quote Reply' : 'Reply';
     const brief = String(pending.brief || '').trim();
@@ -3252,19 +3463,48 @@ def _render_dashboard(
       </section>
     `;
   }};
+  const syncQueueCandidateFormState = (candidateId) => {{
+    const pendingDraft = pendingQueueCandidateDrafts.get(String(candidateId));
+    const pendingAction = pendingQueueCandidateActions.get(String(candidateId));
+    const form = document.querySelector(`[data-candidate-form][data-candidate-id="${{candidateId}}"]`);
+    if (!form) {{
+      return;
+    }}
+    form.classList.toggle('is-pending', Boolean(pendingAction));
+    const card = form.closest('[data-queue-card]');
+    if (card) {{
+      card.classList.toggle('is-pending', Boolean(pendingAction));
+    }}
+    form.querySelectorAll('button[type="submit"]').forEach((button) => {{
+      if (button.dataset.initialDisabled === undefined) {{
+        button.dataset.initialDisabled = button.disabled ? 'true' : 'false';
+      }}
+      if (isQueueDraftAction(button.value)) {{
+        button.disabled = Boolean(pendingDraft || pendingAction) || button.dataset.initialDisabled === 'true';
+        return;
+      }}
+      if (isQueueCandidateAsyncAction(button.value)) {{
+        button.disabled = Boolean(pendingAction) || button.dataset.initialDisabled === 'true';
+      }}
+    }});
+    let note = form.querySelector('[data-inline-pending-note]');
+    if (!pendingAction) {{
+      if (note) {{
+        note.remove();
+      }}
+      return;
+    }}
+    if (!note) {{
+      note = document.createElement('div');
+      note.className = 'inline-pending-note';
+      note.dataset.inlinePendingNote = 'true';
+      form.appendChild(note);
+    }}
+    note.textContent = pendingAction.label || 'Updating candidate...';
+  }};
   const syncQueueCandidateDraftState = (candidateId) => {{
     const pending = pendingQueueCandidateDrafts.get(String(candidateId));
-    const form = document.querySelector(`[data-candidate-form][data-candidate-id="${{candidateId}}"]`);
-    if (form) {{
-      form.querySelectorAll('button[type="submit"]').forEach((button) => {{
-        if (button.dataset.initialDisabled === undefined) {{
-          button.dataset.initialDisabled = button.disabled ? 'true' : 'false';
-        }}
-        if (isQueueDraftAction(button.value)) {{
-          button.disabled = Boolean(pending) || button.dataset.initialDisabled === 'true';
-        }}
-      }});
-    }}
+    syncQueueCandidateFormState(candidateId);
     const slot = document.querySelector(`[data-candidate-draft-slot="${{candidateId}}"]`);
     if (!slot) {{
       return;
@@ -3287,9 +3527,62 @@ def _render_dashboard(
     }}
     slot.innerHTML = buildPendingDraftCardHtml(pending, false);
   }};
-  const syncAllQueueCandidateDraftStates = () => {{
+  const syncQueueDraftActionState = (draftId) => {{
+    const pending = pendingQueueDraftActions.get(String(draftId));
+    const card = document.querySelector(`#draft-${{draftId}}[data-live-draft-card="true"]`);
+    if (!card) {{
+      return;
+    }}
+    card.classList.toggle('is-pending', Boolean(pending));
+    const editor = card.querySelector('[data-draft-editor]');
+    if (editor) {{
+      if (editor.dataset.initialReadOnly === undefined) {{
+        editor.dataset.initialReadOnly = editor.readOnly ? 'true' : 'false';
+      }}
+      editor.readOnly = Boolean(pending) || editor.dataset.initialReadOnly === 'true';
+    }}
+    card.querySelectorAll('button').forEach((button) => {{
+      if (button.dataset.initialDisabled === undefined) {{
+        button.dataset.initialDisabled = button.disabled ? 'true' : 'false';
+      }}
+      if (button.hasAttribute('data-copy-draft')) {{
+        button.disabled = Boolean(pending);
+        return;
+      }}
+      if (button.hasAttribute('data-draft-action') || button.type === 'submit') {{
+        button.disabled = Boolean(pending) || button.dataset.initialDisabled === 'true';
+      }}
+    }});
+    let note = card.querySelector('[data-inline-draft-status]');
+    if (!pending) {{
+      if (note) {{
+        note.remove();
+      }}
+      return;
+    }}
+    if (!note) {{
+      note = document.createElement('div');
+      note.className = 'inline-pending-note';
+      note.dataset.inlineDraftStatus = 'true';
+      card.appendChild(note);
+    }}
+    note.textContent = pending.label || 'Updating draft...';
+  }};
+  const applyQueueActionResult = (result, fallbackMessage) => {{
+    if (result.queue_snapshot) {{
+      applyQueueSnapshot(result.queue_snapshot);
+    }}
+    showToast(result.message || fallbackMessage);
+  }};
+  const syncAllQueuePendingStates = () => {{
     pendingQueueCandidateDrafts.forEach((_pending, candidateId) => {{
       syncQueueCandidateDraftState(candidateId);
+    }});
+    pendingQueueCandidateActions.forEach((_pending, candidateId) => {{
+      syncQueueCandidateFormState(candidateId);
+    }});
+    pendingQueueDraftActions.forEach((_pending, draftId) => {{
+      syncQueueDraftActionState(draftId);
     }});
   }};
   const requestDashboardCandidateAction = async (payload) => {{
@@ -3304,6 +3597,21 @@ def _render_dashboard(
     const result = await response.json();
     if (!response.ok) {{
       throw new Error(result.error || 'Candidate request failed.');
+    }}
+    return result;
+  }};
+  const requestDashboardDraftAction = async (payload) => {{
+    const response = await fetch('/api/draft-action', {{
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: {{
+        'Content-Type': 'application/json',
+      }},
+      body: JSON.stringify(payload),
+    }});
+    const result = await response.json();
+    if (!response.ok) {{
+      throw new Error(result.error || 'Draft request failed.');
     }}
     return result;
   }};
@@ -3401,9 +3709,11 @@ def _render_dashboard(
       }}
       form.dataset.bound = 'true';
       form.addEventListener('submit', async (event) => {{
+        const inQueue = Boolean(form.closest('[data-queue-root]'));
         let editor = form.querySelector('[data-draft-editor]');
         const draftIdField = form.querySelector('input[name="draft_id"]');
         const hiddenDraftText = form.querySelector('input[name="draft_text"]');
+        const actionField = form.querySelector('input[name="action"]');
         if (!editor && draftIdField && hiddenDraftText) {{
           editor = document.getElementById(`draft-text-${{draftIdField.value}}`);
           if (editor) {{
@@ -3415,7 +3725,9 @@ def _render_dashboard(
         }}
         const submitter = event.submitter;
         const actionValue = (submitter && submitter.value) || '';
-        if (form.matches('[data-candidate-form]') && isQueueDraftAction(actionValue)) {{
+        const hiddenActionValue = actionField ? String(actionField.value || '') : '';
+        const busyLabel = (submitter && submitter.dataset.busyLabel) || form.dataset.busyLabel || 'Working...';
+        if (inQueue && form.matches('[data-candidate-form]') && isQueueDraftAction(actionValue)) {{
           event.preventDefault();
           const candidateId = String(form.dataset.candidateId || '');
           if (!candidateId || pendingQueueCandidateDrafts.has(candidateId)) {{
@@ -3437,10 +3749,7 @@ def _render_dashboard(
               draft_guidance: briefField ? briefField.value : '',
             }});
             pendingQueueCandidateDrafts.delete(candidateId);
-            if (result.queue_snapshot) {{
-              applyQueueSnapshot(result.queue_snapshot);
-            }}
-            showToast(result.message || 'Draft queued.');
+            applyQueueActionResult(result, 'Draft queued.');
           }} catch (error) {{
             const pending = pendingQueueCandidateDrafts.get(candidateId);
             pendingQueueCandidateDrafts.delete(candidateId);
@@ -3452,8 +3761,60 @@ def _render_dashboard(
           }}
           return;
         }}
+        if (inQueue && form.matches('[data-candidate-form]') && isQueueCandidateAsyncAction(actionValue)) {{
+          event.preventDefault();
+          const candidateId = String(form.dataset.candidateId || '');
+          if (!candidateId || pendingQueueCandidateActions.has(candidateId)) {{
+            return;
+          }}
+          const briefField = form.querySelector('textarea[name="draft_guidance"]');
+          pendingQueueCandidateActions.set(candidateId, {{
+            action: actionValue,
+            label: busyLabel,
+          }});
+          syncQueueCandidateFormState(candidateId);
+          try {{
+            const result = await requestDashboardCandidateAction({{
+              candidate_id: Number(candidateId),
+              action: actionValue,
+              draft_guidance: briefField ? briefField.value : '',
+            }});
+            pendingQueueCandidateActions.delete(candidateId);
+            applyQueueActionResult(result, 'Candidate updated.');
+          }} catch (error) {{
+            pendingQueueCandidateActions.delete(candidateId);
+            syncQueueCandidateFormState(candidateId);
+            showToast(String(error.message || 'Candidate request failed.'));
+          }}
+          return;
+        }}
+        if (inQueue && draftIdField && isQueueDraftAsyncAction(hiddenActionValue)) {{
+          event.preventDefault();
+          const draftId = String(draftIdField.value || '');
+          if (!draftId || pendingQueueDraftActions.has(draftId)) {{
+            return;
+          }}
+          pendingQueueDraftActions.set(draftId, {{
+            action: hiddenActionValue,
+            label: busyLabel,
+          }});
+          syncQueueDraftActionState(draftId);
+          try {{
+            const result = await requestDashboardDraftAction({{
+              draft_id: Number(draftId),
+              action: hiddenActionValue,
+              draft_text: editor ? editor.value : (hiddenDraftText ? hiddenDraftText.value : ''),
+            }});
+            pendingQueueDraftActions.delete(draftId);
+            applyQueueActionResult(result, 'Draft updated.');
+          }} catch (error) {{
+            pendingQueueDraftActions.delete(draftId);
+            syncQueueDraftActionState(draftId);
+            showToast(String(error.message || 'Draft request failed.'));
+          }}
+          return;
+        }}
         saveScroll();
-        const busyLabel = (submitter && submitter.dataset.busyLabel) || form.dataset.busyLabel || 'Working...';
         showBusy(busyLabel);
       }});
     }});
@@ -3749,7 +4110,7 @@ def _render_dashboard(
     }}
     bindDraftEditorsAndForms(queueRoot);
     initializeQueue();
-    syncAllQueueCandidateDraftStates();
+    syncAllQueuePendingStates();
     setQueueRefreshPrompt(false);
   }};
 
@@ -3774,7 +4135,7 @@ def _render_dashboard(
     if (!queueRoot) {{
       return;
     }}
-    if (!force && pendingQueueCandidateDrafts.size) {{
+    if (!force && hasPendingQueueActions()) {{
       return;
     }}
     const currentVersion = queueRoot.dataset.queueVersion || '';
