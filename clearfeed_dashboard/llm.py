@@ -555,7 +555,7 @@ Output:
 - Return JSON only.
 - Keys: summary_text, proposed_voice_md
 """
-        payload = self.provider.generate_json(self.config.ai_polish_model, prompt, temperature=0.35)
+        payload = self.provider.generate_json(self.config.ai_voice_review_model, prompt, temperature=0.35)
         return {
             "summary_text": str(payload.get("summary_text", "")).strip(),
             "proposed_voice_md": str(payload.get("proposed_voice_md", "")).strip(),
@@ -606,7 +606,7 @@ Output:
 - Return JSON only.
 - Keys: summary_text, proposed_voice_md
 """
-        payload = self.provider.generate_json(self.config.ai_polish_model, prompt, temperature=0.25)
+        payload = self.provider.generate_json(self.config.ai_archive_voice_model, prompt, temperature=0.25)
         return {
             "summary_text": str(payload.get("summary_text", "")).strip(),
             "proposed_voice_md": str(payload.get("proposed_voice_md", "")).strip(),

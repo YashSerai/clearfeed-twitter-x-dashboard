@@ -53,6 +53,40 @@ def _get_int(name: str, default: int) -> int:
         raise RuntimeError(f"Environment variable {name} must be an integer.") from exc
 
 
+def _normalize_voice_review_mode(value: str | None, default: str) -> str:
+    normalized = (value or default or "scheduled").strip().lower()
+    if normalized not in {"scheduled", "manual"}:
+        raise RuntimeError("VOICE_REVIEW_MODE must be `scheduled` or `manual`.")
+    return normalized
+
+
+def _voice_review_cadence_from_hours(hours: int) -> str:
+    if hours == 24:
+        return "daily"
+    if hours == 24 * 7:
+        return "weekly"
+    if hours == 24 * 30:
+        return "monthly"
+    return "custom"
+
+
+def _normalize_voice_review_cadence(value: str | None, default: str) -> str:
+    normalized = (value or default or "daily").strip().lower()
+    if normalized not in {"daily", "weekly", "monthly", "custom"}:
+        raise RuntimeError("VOICE_REVIEW_CADENCE must be `daily`, `weekly`, or `monthly`.")
+    return normalized
+
+
+def _voice_review_interval_hours_for_cadence(cadence: str, fallback_hours: int) -> int:
+    if cadence == "daily":
+        return 24
+    if cadence == "weekly":
+        return 24 * 7
+    if cadence == "monthly":
+        return 24 * 30
+    return fallback_hours
+
+
 @dataclass(slots=True)
 class AppConfig:
     root: Path
@@ -64,6 +98,8 @@ class AppConfig:
     ai_text_model: str
     ai_polish_model: str
     ai_originals_model: str
+    ai_voice_review_model: str
+    ai_archive_voice_model: str
     ai_vision_model: str | None
     ai_image_model: str | None
     google_cloud_project: str | None
@@ -163,7 +199,15 @@ class AppConfig:
             )
         )
         drafting_detail = (
-            f"Text: {self.ai_text_model} | Polish: {self.ai_polish_model} | Originals: {self.ai_originals_model}"
+            " | ".join(
+                [
+                    f"Text: {self.ai_text_model}",
+                    f"Polish: {self.ai_polish_model}",
+                    f"Originals: {self.ai_originals_model}",
+                    f"Voice Review: {self.ai_voice_review_model}",
+                    f"Archive Voice: {self.ai_archive_voice_model}",
+                ]
+            )
             if self.provider_config_ready
             else "Add text and polish models for drafting."
         )
@@ -238,6 +282,15 @@ def load_config(root: str | Path | None = None) -> AppConfig:
     sources_cfg = yaml.safe_load((project_root / "data" / "sources" / "x_sources.yaml").read_text(encoding="utf-8"))
 
     worker_cfg = dict(cfg["worker"])
+    worker_cfg.setdefault("list_max_alerts_per_cycle", int(worker_cfg.get("max_candidates_per_cycle", 6)))
+    worker_cfg.setdefault("homepage_max_opportunistic_alerts_per_cycle", 1)
+    worker_cfg.setdefault("list_min_views_required", 1000)
+    worker_cfg.setdefault("list_min_views_age_minutes", 10)
+    worker_cfg.setdefault("homepage_min_views_required", 10000)
+    worker_cfg.setdefault("homepage_min_views_age_minutes", 10)
+    worker_cfg.setdefault("focus_keywords", [])
+    worker_cfg.setdefault("secondary_focus_keywords", [])
+    worker_cfg.setdefault("deprioritize_keywords", [])
     worker_cfg["min_delay_minutes"] = _get_int("WORKER_MIN_DELAY_MINUTES", int(worker_cfg["min_delay_minutes"]))
     worker_cfg["max_delay_minutes"] = _get_int("WORKER_MAX_DELAY_MINUTES", int(worker_cfg["max_delay_minutes"]))
     worker_cfg["max_candidates_per_cycle"] = _get_int(
@@ -267,6 +320,21 @@ def load_config(root: str | Path | None = None) -> AppConfig:
     worker_cfg["max_original_drafts_per_day"] = _get_int(
         "WORKER_MAX_ORIGINAL_DRAFTS_PER_DAY",
         int(worker_cfg["max_original_drafts_per_day"]),
+    )
+    legacy_voice_review_enabled = bool(worker_cfg.get("voice_review_enabled", True))
+    legacy_voice_review_interval_hours = int(worker_cfg.get("voice_review_interval_hours", 24))
+    worker_cfg["voice_review_mode"] = _normalize_voice_review_mode(
+        os.environ.get("VOICE_REVIEW_MODE"),
+        "scheduled" if legacy_voice_review_enabled else "manual",
+    )
+    worker_cfg["voice_review_cadence"] = _normalize_voice_review_cadence(
+        os.environ.get("VOICE_REVIEW_CADENCE"),
+        _voice_review_cadence_from_hours(legacy_voice_review_interval_hours),
+    )
+    worker_cfg["voice_review_enabled"] = worker_cfg["voice_review_mode"] == "scheduled"
+    worker_cfg["voice_review_interval_hours"] = _voice_review_interval_hours_for_cadence(
+        str(worker_cfg["voice_review_cadence"]),
+        legacy_voice_review_interval_hours,
     )
     if int(worker_cfg["max_delay_minutes"]) < int(worker_cfg["min_delay_minutes"]):
         raise RuntimeError("WORKER_MAX_DELAY_MINUTES must be greater than or equal to WORKER_MIN_DELAY_MINUTES.")
@@ -326,6 +394,8 @@ def load_config(root: str | Path | None = None) -> AppConfig:
     ai_text_model = _optional_env("AI_TEXT_MODEL") or _optional_env("GEMINI_TEXT_MODEL") or ("gemini-3-flash-preview" if ai_provider == "vertex" else "")
     ai_polish_model = _optional_env("AI_POLISH_MODEL") or _optional_env("GEMINI_POLISH_MODEL") or ("gemini-3-flash-preview" if ai_provider == "vertex" else "")
     ai_originals_model = _optional_env("AI_ORIGINALS_MODEL") or ai_polish_model or ai_text_model
+    ai_voice_review_model = _optional_env("AI_VOICE_REVIEW_MODEL") or ai_originals_model or ai_polish_model or ai_text_model
+    ai_archive_voice_model = _optional_env("AI_ARCHIVE_VOICE_MODEL") or ai_voice_review_model or ai_originals_model or ai_polish_model or ai_text_model
     ai_vision_model = _optional_env("AI_VISION_MODEL")
     ai_image_model = _optional_env("AI_IMAGE_MODEL") or _optional_env("GEMINI_IMAGE_MODEL")
 
@@ -339,6 +409,8 @@ def load_config(root: str | Path | None = None) -> AppConfig:
         ai_text_model=ai_text_model,
         ai_polish_model=ai_polish_model,
         ai_originals_model=ai_originals_model,
+        ai_voice_review_model=ai_voice_review_model,
+        ai_archive_voice_model=ai_archive_voice_model,
         ai_vision_model=ai_vision_model,
         ai_image_model=ai_image_model,
         google_cloud_project=_optional_env("GOOGLE_CLOUD_PROJECT"),

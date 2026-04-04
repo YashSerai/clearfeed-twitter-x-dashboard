@@ -147,6 +147,31 @@ class ConfigTests(unittest.TestCase):
             self.assertFalse(config.web_research_enabled)
             self.assertFalse(config.vision_enabled)
 
+    def test_voice_review_model_fallbacks_and_env_overrides(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self._write_repo(root)
+            os.environ["AI_PROVIDER"] = "openai_compatible"
+            os.environ["OPENAI_COMPAT_BASE_URL"] = "http://127.0.0.1:11434/v1"
+            os.environ["AI_TEXT_MODEL"] = "base-text"
+            os.environ["AI_POLISH_MODEL"] = "base-polish"
+            os.environ["AI_ORIGINALS_MODEL"] = "premium-originals"
+            os.environ["VOICE_REVIEW_MODE"] = "manual"
+            os.environ["VOICE_REVIEW_CADENCE"] = "monthly"
+            config = load_config(root)
+            self.assertEqual(config.ai_voice_review_model, "premium-originals")
+            self.assertEqual(config.ai_archive_voice_model, "premium-originals")
+            self.assertEqual(config.worker.voice_review_mode, "manual")
+            self.assertEqual(config.worker.voice_review_cadence, "monthly")
+            self.assertFalse(config.worker.voice_review_enabled)
+            self.assertEqual(config.worker.voice_review_interval_hours, 24 * 30)
+
+            os.environ["AI_VOICE_REVIEW_MODEL"] = "voice-premium"
+            os.environ["AI_ARCHIVE_VOICE_MODEL"] = "archive-premium"
+            config = load_config(root)
+            self.assertEqual(config.ai_voice_review_model, "voice-premium")
+            self.assertEqual(config.ai_archive_voice_model, "archive-premium")
+
     def test_telegram_mini_app_requires_public_url(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

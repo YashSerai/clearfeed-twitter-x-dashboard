@@ -46,6 +46,8 @@ class WorkerSettings:
     deprioritize_keywords: list[str]
     voice_review_enabled: bool
     voice_review_interval_hours: int
+    voice_review_mode: str
+    voice_review_cadence: str
     voice_review_min_examples: int
     voice_review_max_examples: int
 

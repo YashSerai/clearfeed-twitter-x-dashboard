@@ -217,6 +217,43 @@ class VoiceReviewTests(unittest.TestCase):
             self.assertIn("Keep `profiles/default/Humanizer.md` as the last-pass short-form constraint layer.", final_voice)
             self._close_service_logger(service)
 
+    def test_manual_voice_review_mode_blocks_auto_run_but_allows_force(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self._write_repo(root)
+            os.environ["VOICE_REVIEW_MODE"] = "manual"
+            os.environ["VOICE_REVIEW_CADENCE"] = "monthly"
+            os.environ["AI_PROVIDER"] = "openai_compatible"
+            os.environ["OPENAI_COMPAT_BASE_URL"] = "http://127.0.0.1:11434/v1"
+            os.environ["AI_TEXT_MODEL"] = "test-text"
+            os.environ["AI_POLISH_MODEL"] = "test-polish"
+            os.environ["AI_VOICE_REVIEW_MODEL"] = "voice-premium"
+            config = load_config(root)
+            service = XAgentService(config)
+            service.drafting = _FakeDrafting()
+            service.bootstrap()
+
+            with managed_connection(config.database_path) as conn:
+                draft_id = db.insert_draft(conn, None, "reply", "generated reply", "reason", "fake-model")
+                db.update_draft_text(conn, draft_id, "edited final reply")
+                db.mark_draft_status(conn, draft_id, "manual_posted")
+                db.record_voice_learning_event(conn, draft_id, "manual_posted", "dashboard")
+                draft_id_2 = db.insert_draft(conn, None, "reply", "generated reply two", "reason", "fake-model")
+                db.mark_draft_status(conn, draft_id_2, "rejected")
+                db.record_voice_learning_event(conn, draft_id_2, "rejected", "dashboard")
+
+            skipped = service.maybe_run_voice_review(force=False)
+            self.assertEqual(skipped["status"], "disabled")
+
+            forced = service.maybe_run_voice_review(force=True)
+            self.assertEqual(forced["status"], "created")
+
+            status = service.voice_review_status()
+            self.assertEqual(status["mode"], "manual")
+            self.assertEqual(status["cadence"], "monthly")
+            self.assertEqual(status["model_name"], "voice-premium")
+            self._close_service_logger(service)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -315,8 +315,8 @@ class XAgentService:
             reviewed_until_event_id = int(latest["reviewed_until_event_id"]) if latest else 0
             last_review_at = _parse_runtime_datetime(str(latest["created_at"])) if latest and latest["created_at"] else None
 
-            if not force and not self.config.worker.voice_review_enabled:
-                return {"status": "disabled", "message": "Voice review is disabled in config."}
+            if not force and self.config.worker.voice_review_mode == "manual":
+                return {"status": "disabled", "message": "Voice review is set to manual-only mode."}
             if (
                 not force
                 and last_review_at
@@ -459,6 +459,9 @@ class XAgentService:
             reviewed_until = int(latest["reviewed_until_event_id"]) if latest else 0
             return {
                 "enabled": bool(self.config.worker.voice_review_enabled),
+                "mode": str(self.config.worker.voice_review_mode),
+                "cadence": str(self.config.worker.voice_review_cadence),
+                "model_name": str(self.config.ai_voice_review_model),
                   "pending": (
                       {
                           "id": int(pending["id"]),

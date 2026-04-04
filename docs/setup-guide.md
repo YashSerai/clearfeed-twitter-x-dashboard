@@ -153,8 +153,12 @@ Fill:
 - `AI_PROVIDER=vertex`
 - `AI_TEXT_MODEL`
 - `AI_POLISH_MODEL`
+- optional `AI_VOICE_REVIEW_MODEL`
+- optional `AI_ARCHIVE_VOICE_MODEL`
 - optional `AI_VISION_MODEL`
 - optional `AI_IMAGE_MODEL`
+- optional `VOICE_REVIEW_MODE`
+- optional `VOICE_REVIEW_CADENCE`
 - `GOOGLE_CLOUD_PROJECT`
 - `GOOGLE_APPLICATION_CREDENTIALS`
 - optional `GOOGLE_CLOUD_LOCATION`
@@ -164,8 +168,12 @@ Fill:
 - `AI_PROVIDER=openai_compatible`
 - `AI_TEXT_MODEL`
 - `AI_POLISH_MODEL`
+- optional `AI_VOICE_REVIEW_MODEL`
+- optional `AI_ARCHIVE_VOICE_MODEL`
 - optional `AI_VISION_MODEL`
 - optional `AI_IMAGE_MODEL`
+- optional `VOICE_REVIEW_MODE`
+- optional `VOICE_REVIEW_CADENCE`
 - `OPENAI_COMPAT_BASE_URL`
 - optional `OPENAI_COMPAT_API_KEY`
 - optional `OPENAI_COMPAT_TIMEOUT_SECONDS`
@@ -291,7 +299,7 @@ What it uses:
 
 How it works:
 - the app stores those signals locally in SQLite
-- once per day, or whenever you trigger it manually, it can run a `Voice Review`
+- on the cadence you choose (`daily`, `weekly`, `monthly`, or `manual`), it can run a `Voice Review`
 - the review compares your kept vs rejected patterns and proposes a new `Voice.md`
 - the dashboard shows a diff and lets you approve or reject the update
 
@@ -316,5 +324,5 @@ Important rules:
 - `start_services.ps1` fails in Telegram Mini App mode: check that `cloudflared` is installed and that the machine can open a Cloudflare quick tunnel.
 - Telegram actions do nothing: Telegram remains disabled until `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` are configured.
 - Vertex auth failures: verify `GOOGLE_CLOUD_PROJECT` and `GOOGLE_APPLICATION_CREDENTIALS`, then confirm the account has access to the configured models.
-- Archive proposals or voice reviews feel weak on a local model: try a stronger hosted model for `AI_POLISH_MODEL`.
+- Archive proposals or voice reviews feel weak on a local model: try a stronger hosted model for `AI_VOICE_REVIEW_MODEL` and `AI_ARCHIVE_VOICE_MODEL`.
 - Performance is worse from a OneDrive-backed path. Prefer cloning to a local folder like `C:\dev\clearfeed-twitter-x-dashboard` instead of `C:\Users\...\OneDrive\...`.
