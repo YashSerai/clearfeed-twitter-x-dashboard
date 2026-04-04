@@ -3020,6 +3020,29 @@ def _render_dashboard(
       border-color: rgba(119,225,255,.48);
       background: rgba(119,225,255,.10);
     }}
+    .queue-jump.is-pending {{
+      border-color: rgba(119,225,255,.32);
+      background: rgba(119,225,255,.07);
+    }}
+    .queue-jump-status {{
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 6px;
+      color: #c8ebf8;
+      font-size: 11px;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }}
+    .queue-jump-status::before {{
+      content: "";
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      background: rgba(119,225,255,.92);
+      box-shadow: 0 0 0 0 rgba(119,225,255,.3);
+      animation: pendingPulse 1.2s ease-out infinite;
+    }}
     .queue-jump.is-skipped {{
       opacity: .5;
     }}
@@ -3467,6 +3490,25 @@ def _render_dashboard(
     const pendingDraft = pendingQueueCandidateDrafts.get(String(candidateId));
     const pendingAction = pendingQueueCandidateActions.get(String(candidateId));
     const form = document.querySelector(`[data-candidate-form][data-candidate-id="${{candidateId}}"]`);
+    const jump = document.querySelector(`[data-queue-jump][data-jump-to="${{candidateId}}"]`);
+    const queuePending = pendingDraft || pendingAction;
+    if (jump) {{
+      jump.classList.toggle('is-pending', Boolean(queuePending));
+      let jumpStatus = jump.querySelector('[data-queue-jump-status]');
+      if (!queuePending) {{
+        if (jumpStatus) {{
+          jumpStatus.remove();
+        }}
+      }} else {{
+        if (!jumpStatus) {{
+          jumpStatus = document.createElement('span');
+          jumpStatus.className = 'queue-jump-status';
+          jumpStatus.dataset.queueJumpStatus = 'true';
+          jump.appendChild(jumpStatus);
+        }}
+        jumpStatus.textContent = pendingDraft ? 'Thinking' : (pendingAction.label || 'Updating');
+      }}
+    }}
     if (!form) {{
       return;
     }}
@@ -4014,6 +4056,7 @@ def _render_dashboard(
         }}
         persistQueue();
       }}
+      syncAllQueuePendingStates();
     }};
     const activateCard = (cardId) => {{
       const nextIndex = queueCards.findIndex((card) => card.dataset.cardId === String(cardId));
