@@ -138,7 +138,7 @@ Good:
 - "Anthropic demonstrates how compute is still the bottleneck. NVIDIA keeps capturing the upside as long as frontier progress remains this capital intensive."
 - "A lot of AI distribution is just subsidized CAC hidden behind novelty."
 - "The model matters less than the workflow lock-in once teams rebuild around it."
-- "1.4T tokens in a day is wild. Also kind of tracks with what I've been hearing around Qwen lately."
+- "1.4T tokens in a day says a lot about how fast Qwen usage is ramping."
 
 Weak:
 
@@ -212,9 +212,9 @@ Other words to reach for when they fit better:
 
 Examples:
 
-- "1.4T tokens in a day is wild."
+- "1.4T tokens in a day is a real usage signal."
 - "Also kind of tracks with what I've been hearing around Qwen lately."
-- "$122B is wild, but the more important part is what that capital buys."
+- "$122B matters less than what that capital actually buys."
 - "Most people are treating this like a tooling problem when it is really a retention problem."
 - "Anthropic keeps showing how much frontier progress still depends on brute-force compute."
 
@@ -247,7 +247,6 @@ Words and phrases that naturally fit:
 
 - actually
 - honestly
-- wild
 - weird
 - underbuilt
 - retention

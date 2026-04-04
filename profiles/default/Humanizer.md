@@ -40,7 +40,7 @@ One is a list
 One is a mini-story
 
 3. Missing Casual Markers
-The tell: Zero informal language. No "lol", "honestly", "wild", "tbh", "ngl", "huh", "wait", "so", "anyway". Every sentence is too clean.
+The tell: Zero informal language. No "lol", "honestly", "tbh", "ngl", "huh", "wait", "so", "anyway". Every sentence is too clean.
 
 AI pattern:
 
@@ -105,12 +105,25 @@ Makes sense honestly. From what I've been hearing, Qwen has been pretty solid on
 
 Fix: When the point is partly inference, add attribution markers like "from what I've seen", "from what I've heard", "in my experience", "seems like", or "probably". Keep it to 1-2 grounded strengths. Do not stack polished capability claims like you are writing a benchmark summary.
 
-8. Setup Then Reveal on Every Tweet
+8. Wild-For Template
+The tell: The tweet uses the reusable pattern "[stat/thing] is wild for [category/use case]". It sounds like synthetic social copy because the reaction and the framing are both templated.
+
+AI pattern:
+
+75% savings is wild for unit economics in agentic loops.
+
+Human version:
+
+75% savings matters a lot for agentic loop economics.
+
+Fix: Do not default to "[X] is wild for [Y]". If the number matters, say why it matters directly. Use "wild" sparingly, and do not turn it into a reusable sentence template.
+
+9. Setup Then Reveal on Every Tweet
 The tell: Every tweet withholds the interesting part and then reveals it. Real humans sometimes lead with the surprising bit.
 
 Fix: Sometimes lead with the surprise. Sometimes bury it. Vary the information architecture.
 
-9. Hashtag Placement
+10. Hashtag Placement
 The tell: Hashtags appended as a clean block are acceptable. The bigger tell is using generic tags instead of real community tags.
 
 Rules:
@@ -120,7 +133,7 @@ Community and niche tags beat generic volume tags
 Always include any branded or series hashtags the author explicitly requested
 Put hashtags at the end with breathing room
 
-10. Numbers That Sound Too Clean
+11. Numbers That Sound Too Clean
 The tell: "Achieved an 86% reduction" reads like a press release. "Cut it by like 86%" reads like a person.
 
 Fix: Lead with the concrete number, then give the percentage if it helps. Add a reaction when it feels natural.
