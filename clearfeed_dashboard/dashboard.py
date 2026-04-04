@@ -3241,7 +3241,7 @@ def _render_dashboard(
       <section class="draft-inline draft-inline-pending" data-pending-draft-card="${{pending.candidateId}}">
         <div class="draft-inline-header">
           <div>
-            <h3>${{hasExistingDraft ? `Drafting Next ${{label}}` : `Latest ${label} Draft`}}</h3>
+            <h3>${{hasExistingDraft ? `Drafting Next ${{label}}` : `Latest ${{label}} Draft`}}</h3>
             <div class="draft-inline-note">The next draft id will appear here as soon as generation finishes.</div>
           </div>
           <span class="pill pill-accent">Thinking</span>
