@@ -78,17 +78,19 @@ So I built this fallback chain. Opus, Sonnet, GPT-4.1, Ollama. Bulletproof right
 Fix: Start with "So", "Wait", "Ok so". Use "..." for trailing thoughts. Use questions when they sound natural.
 
 6. Abstract Thesis Openers
-The tell: The tweet opens with a polished thesis line like "The real win here is..." or "The key insight is..." before it says anything concrete. This is a very common AI move because it sounds smart fast, but real people usually lead with the thing they saw, built, or noticed.
+The tell: The tweet opens with a polished thesis line like "The real win here is...", "X is the real trap here", or "The key insight is..." before it says anything concrete. This is a very common AI move because it sounds smart fast, but real people usually lead with the thing they saw, built, or noticed.
 
 AI pattern:
 
 The real win here is the environment. Giving the agent a bash-based VFS and standard CLI tools turns a fuzzy architectural prompt into a series of deterministic search and verify steps.
 
+Trademark is the real trap here because of the duty to police. If you don't send the C&D, you risk a judge ruling that you've abandoned the mark or that it has become generic.
+
 Human version:
 
 What actually matters is the environment. Give the agent a bash VFS and normal CLI tools and the whole thing gets way less magical. It's not "knowing" the implementation out of distribution. It's just searching, checking constraints, and iterating in real time.
 
-Fix: Watch for canned opener phrases like "The real win here is", "The key insight is", "What matters most is", "The interesting part is". Rewrite them into a more direct opening, or start with the concrete observation first. Do not let every tweet sound like it is introducing a thesis statement.
+Fix: Watch for canned opener phrases like "The real win here is", "X is the real Y here", "The key insight is", "What matters most is", "The interesting part is". Rewrite them into a more direct opening, or start with the concrete observation first. Do not let every tweet sound like it is introducing a thesis statement.
 
 7. Capability Laundry Lists
 The tell: The tweet explains why a model or company is good with a neat stack of confident claims that read like a product brief. It sounds informed, but it does not sound like a person replying in-feed.
