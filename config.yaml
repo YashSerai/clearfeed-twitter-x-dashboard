@@ -13,7 +13,9 @@ worker:
   scrape_timeout_ms: 45000
   recent_signals_limit: 30
   original_post_options: 5
+  original_topics_per_batch: 3
   max_original_drafts_per_day: 5
+  original_topic_suggestion_limit: 5
   default_image_mode: suggest_only
   homepage_scrape_limit: 60
   homepage_llm_pool_size: 24

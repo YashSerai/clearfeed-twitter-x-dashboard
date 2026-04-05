@@ -126,7 +126,9 @@ class TelegramMiniAppTests(unittest.TestCase):
                   scrape_timeout_ms: 45000
                   recent_signals_limit: 30
                   original_post_options: 1
+                  original_topics_per_batch: 3
                   max_original_drafts_per_day: 3
+                  original_topic_suggestion_limit: 5
                   default_image_mode: suggest_only
                   homepage_scrape_limit: 0
                   homepage_llm_pool_size: 0
@@ -209,6 +211,7 @@ class TelegramMiniAppTests(unittest.TestCase):
                 heuristic_score=55.0,
                 llm_score=61.0,
                 total_score=63.0,
+                opportunity_bucket="core",
                 recommended_action="reply",
                 why="Useful test signal",
             )
@@ -292,8 +295,27 @@ class TelegramMiniAppTests(unittest.TestCase):
                 )
                 self.assertIn("marked as posted", manual_result["message"])
 
-                original_result = _mini_original_action(service, {"topic": "AI distribution"})
-                self.assertIn("Created 1 original draft", original_result["message"])
+                original_result = _mini_original_action(
+                    service,
+                    {
+                        "topic": "Make each draft practical for builders.",
+                        "selected_topics": [
+                            {
+                                "title": "Topic 1",
+                                "why_now": "Fresh conversation in the signal pool.",
+                                "suggested_angle": "Explain what builders should notice.",
+                                "prompt_seed": "AI distribution | angle: explain what builders should notice",
+                            },
+                            {
+                                "title": "Topic 2",
+                                "why_now": "Fresh conversation in the signal pool.",
+                                "suggested_angle": "Call out the market implication.",
+                                "prompt_seed": "Model launches | angle: call out the market implication",
+                            },
+                        ],
+                    },
+                )
+                self.assertIn("Created 2 original draft", original_result["message"])
 
                 topics_result = _mini_original_topics_action(service, {"topic_hint": "OpenAI model launches"})
                 self.assertEqual(len(topics_result["topic_suggestions"]), 5)
@@ -303,12 +325,16 @@ class TelegramMiniAppTests(unittest.TestCase):
                 self.assertEqual(payload["focus"]["candidate_id"], candidate_id)
                 self.assertEqual(payload["focus"]["draft_id"], draft_id)
                 self.assertTrue(payload["app"]["telegram_webapp_enabled"])
-                self.assertGreaterEqual(len(payload["original_drafts"]), 1)
+                self.assertGreaterEqual(len(payload["original_drafts"]), 2)
                 self.assertEqual(payload["queue"], [])
                 with managed_connection(service.config.database_path) as conn:
                     persisted = conn.execute("SELECT status, draft_text FROM drafts WHERE id = ?", (draft_id,)).fetchone()
                     self.assertEqual(str(persisted["status"]), "manual_posted")
                     self.assertEqual(str(persisted["draft_text"]), "Edited final draft text")
+                    original_draft_count = conn.execute(
+                        "SELECT COUNT(*) AS c FROM drafts WHERE draft_type = 'original'"
+                    ).fetchone()
+                    self.assertEqual(int(original_draft_count["c"]), 2)
                 self.assertTrue(Path(root / "data" / "generated" / f"draft_{draft_id}.png").exists())
             finally:
                 self._close_service_logger(service)

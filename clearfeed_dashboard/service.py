@@ -144,17 +144,31 @@ class XAgentService:
                 return {"message": f"Saved draft #{draft_id}."}
         raise ValueError(f"Unknown draft action: {action}")
 
-    def create_original_drafts(self, topic: str, notify_telegram: bool = True) -> list[int]:
+    def create_original_drafts(
+        self,
+        topic: str,
+        selected_topics: list[dict[str, Any]] | None = None,
+        notify_telegram: bool = True,
+    ) -> list[int]:
         self._ensure_drafting_enabled()
         with managed_connection(self.config.database_path) as conn:
             db.bootstrap(conn)
-            return self._generate_original_post_drafts(conn, topic, notify_telegram=notify_telegram)
+            return self._generate_original_post_drafts(
+                conn,
+                topic,
+                selected_topics=selected_topics,
+                notify_telegram=notify_telegram,
+            )
 
-    def suggest_original_post_topics(self, topic_hint: str = "", limit: int = 5) -> list[dict[str, str]]:
+    def suggest_original_post_topics(self, topic_hint: str = "", limit: int | None = None) -> list[dict[str, str]]:
         self._ensure_drafting_enabled()
         with managed_connection(self.config.database_path) as conn:
             db.bootstrap(conn)
-            return self._suggest_original_post_topics(conn, topic_hint=topic_hint, limit=limit)
+            return self._suggest_original_post_topics(
+                conn,
+                topic_hint=topic_hint,
+                limit=limit or self.config.worker.original_topic_suggestion_limit,
+            )
 
     def import_x_archive(self, archive_dir: str) -> dict[str, Any]:
         archive_path, items, summary_text = import_archive(Path(archive_dir))
@@ -1069,6 +1083,7 @@ class XAgentService:
         self,
         conn: sqlite3.Connection,
         topic: str,
+        selected_topics: list[dict[str, Any]] | None = None,
         notify_telegram: bool = True,
     ) -> list[int]:
         self._ensure_drafting_enabled()
@@ -1078,6 +1093,31 @@ class XAgentService:
         if remaining <= 0:
             raise RuntimeError(
                 f"Daily original-draft cap reached ({self.config.worker.max_original_drafts_per_day} per day)."
+            )
+        normalized_topic = topic.strip()
+        normalized_selected_topics = self._normalize_original_topic_selections(selected_topics)
+        if normalized_selected_topics:
+            if len(normalized_selected_topics) > self.config.worker.original_topics_per_batch:
+                raise RuntimeError(
+                    f"Select up to {self.config.worker.original_topics_per_batch} timely topics per batch."
+                )
+            requested_topics = normalized_selected_topics
+        elif normalized_topic:
+            requested_topics = [
+                {
+                    "title": "",
+                    "why_now": "",
+                    "suggested_angle": "",
+                    "prompt_seed": normalized_topic,
+                }
+            ]
+        else:
+            raise RuntimeError(
+                f"Select up to {self.config.worker.original_topics_per_batch} timely topics or write a custom draft brief first."
+            )
+        if len(requested_topics) > remaining:
+            raise RuntimeError(
+                f"You can only create {remaining} more original draft(s) today before hitting the daily cap."
             )
         signal_rows = db.fetch_recent_posts_for_originals(
             conn,
@@ -1097,20 +1137,27 @@ class XAgentService:
         ]
         recent_original_drafts = db.fetch_recent_original_draft_texts(
             conn,
-            limit=max(self.config.worker.original_post_options * 2, 8),
+            limit=max(len(requested_topics) * 3, 8),
         )
-        drafts = self.drafting.generate_original_posts(
-            topic=topic,
-            signals=signals,
-            count=min(self.config.worker.original_post_options, remaining),
-            recent_original_drafts=recent_original_drafts,
-        )
-        slot_labels = self._suggest_original_post_slot_labels(len(drafts))
         draft_ids: list[int] = []
-        for index, draft in enumerate(drafts):
+        global_brief = normalized_topic if normalized_selected_topics else ""
+        for topic_selection in requested_topics:
+            effective_topic = str(topic_selection.get("prompt_seed") or "").strip()
+            if global_brief:
+                effective_topic = f"{effective_topic}\n\nAdditional direction from the user:\n{global_brief}"
+            drafts = self.drafting.generate_original_posts(
+                topic=effective_topic,
+                signals=signals,
+                count=1,
+                recent_original_drafts=recent_original_drafts,
+            )
+            if not drafts:
+                continue
+            draft = drafts[0]
             generation_note = self._build_original_generation_note(
-                topic=topic,
-                slot_label=slot_labels[index] if index < len(slot_labels) else "",
+                topic_title=str(topic_selection.get("title") or "").strip(),
+                suggested_angle=str(topic_selection.get("suggested_angle") or "").strip(),
+                overall_brief=global_brief if normalized_selected_topics else normalized_topic,
             )
             draft_id = db.insert_draft(
                 conn,
@@ -1124,6 +1171,7 @@ class XAgentService:
                 generation_notes=generation_note,
             )
             draft_ids.append(draft_id)
+            recent_original_drafts.insert(0, draft.text)
             if notify_telegram and self.config.telegram_legacy_forwarding_enabled:
                 message = self.telegram.send_message(
                     self._render_draft_message(conn, draft_id),
@@ -1163,6 +1211,35 @@ class XAgentService:
             limit=limit,
         )
 
+    def _normalize_original_topic_selections(
+        self,
+        selected_topics: list[dict[str, Any]] | None,
+    ) -> list[dict[str, str]]:
+        normalized: list[dict[str, str]] = []
+        seen: set[str] = set()
+        for raw in selected_topics or []:
+            if not isinstance(raw, dict):
+                continue
+            title = str(raw.get("title") or "").strip()
+            why_now = str(raw.get("why_now") or "").strip()
+            suggested_angle = str(raw.get("suggested_angle") or "").strip()
+            prompt_seed = str(raw.get("prompt_seed") or title).strip()
+            if not prompt_seed:
+                continue
+            dedupe_key = prompt_seed.lower()
+            if dedupe_key in seen:
+                continue
+            seen.add(dedupe_key)
+            normalized.append(
+                {
+                    "title": title,
+                    "why_now": why_now,
+                    "suggested_angle": suggested_angle,
+                    "prompt_seed": prompt_seed,
+                }
+            )
+        return normalized
+
     def _ensure_drafting_enabled(self) -> None:
         if self.drafting is not None:
             return
@@ -1170,53 +1247,22 @@ class XAgentService:
             "Drafting is not configured. Run scripts/setup.ps1 and fill the selected AI provider settings in .env."
         )
 
-    def _suggest_original_post_slot_labels(self, count: int) -> list[str]:
-        if count <= 0:
-            return []
-        try:
-            local_tz = ZoneInfo(self.config.timezone)
-        except Exception:
-            local_tz = timezone.utc
-        now_local = datetime.now(timezone.utc).astimezone(local_tz)
-        day_start = now_local.replace(hour=9, minute=0, second=0, microsecond=0)
-        day_end = now_local.replace(hour=21, minute=0, second=0, microsecond=0)
-        first_slot = max(self._round_up_to_quarter_hour(now_local + timedelta(minutes=20)), day_start)
-        if first_slot >= day_end:
-            first_slot = self._round_up_to_quarter_hour(now_local + timedelta(minutes=45))
-            spacing = timedelta(minutes=75)
-        elif count == 1:
-            spacing = timedelta()
-        else:
-            total_minutes = max(int((day_end - first_slot).total_seconds() // 60), 0)
-            spacing = timedelta(minutes=max(total_minutes // max(count - 1, 1), 75))
-        return [
-            self._format_original_slot_label(first_slot + (spacing * index), index=index, total=count, today=now_local.date())
-            for index in range(count)
-        ]
-
-    def _build_original_generation_note(self, topic: str, slot_label: str) -> str | None:
+    def _build_original_generation_note(
+        self,
+        topic_title: str,
+        suggested_angle: str,
+        overall_brief: str,
+    ) -> str | None:
         parts: list[str] = []
-        normalized_topic = topic.strip()
-        if slot_label:
-            parts.append(slot_label)
-        if normalized_topic:
-            parts.append(f"Brief: {normalized_topic}")
+        if topic_title:
+            parts.append(f"Topic: {topic_title}")
+        if suggested_angle:
+            parts.append(f"Angle: {suggested_angle}")
+        normalized_brief = overall_brief.strip()
+        if normalized_brief:
+            label = "Global brief" if topic_title else "Brief"
+            parts.append(f"{label}: {normalized_brief}")
         return "\n".join(parts) if parts else None
-
-    def _round_up_to_quarter_hour(self, value: datetime) -> datetime:
-        rounded = value.replace(second=0, microsecond=0)
-        minute_remainder = rounded.minute % 15
-        if minute_remainder == 0:
-            return rounded
-        return rounded + timedelta(minutes=15 - minute_remainder)
-
-    def _format_original_slot_label(self, slot: datetime, *, index: int, total: int, today: Any) -> str:
-        time_label = slot.strftime("%I:%M %p").lstrip("0")
-        date_label = ""
-        if slot.date() != today:
-            date_label = f" on {slot.strftime('%b %d')}"
-        tz_label = slot.tzname() or self.config.timezone
-        return f"Suggested slot {index + 1}/{total}: {time_label}{date_label} {tz_label}"
 
     def _normalize_dashboard_draft_text(self, draft_text: str | None, required: bool = False) -> str | None:
         if draft_text is None:

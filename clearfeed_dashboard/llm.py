@@ -419,6 +419,8 @@ Task:
 - Favor ideas relevant to AI, builders, products, infra, workflow, and market implications.
 - Each idea should be distinct.
 - Give the user a clear angle they could take, not just a topic headline.
+- Make each topic strong enough to support one substantial standalone post, not a throwaway reaction.
+- Favor angles where the user can add something new to the conversation: a mechanism, tradeoff, market implication, operator takeaway, or informed disagreement.
 - Make the angle specific enough that a user can decide "yes, I want to post on this" or "no".
 
 Return JSON array only with keys:
@@ -481,17 +483,22 @@ Rules:
 - Use the voice packet as a constraint system, not as a phrase bank.
 - Use the current signal set, not generic timeless advice.
 - If the live research brief is available, use it to ground the drafts in what is happening right now.
+- If live web research is available for this provider, use it to verify the current situation before drafting instead of relying only on the summary brief.
 - Focus on AI, builder workflow, product implications, market structure, or what the current discourse is missing.
-- Do not let the whole batch collapse into the same recurring thesis or default closer.
 - Return exactly {count} options.
-- Make the posts longer and more developed than a throwaway X one-liner, but never exceed 280 characters.
-- Aim for roughly 170 to 260 characters unless a shorter draft is clearly stronger.
+- Treat these as longer-form X post drafts, not short 280-character tweets.
+- Aim for roughly 500 to 900 characters when the topic can support it.
+- Do not go below 500 characters unless the topic would clearly become padded, repetitive, or weaker by forcing more length.
+- The post should read like a researched breakdown: lead with the live topic, unpack the mechanism or evidence, then land on a useful implication or non-obvious takeaway.
 - Every option should do one valuable thing well: teach, sharpen, reframe, warn, predict, or name a practical implication.
+- Add something new to the conversation instead of restating the obvious consensus take.
 - Use specific nouns, product examples, company names, or market details when they materially improve the post.
+- Include at least one concrete detail that clearly came from current signals or research.
+- Sound human and in-feed, not like a press release, consultant memo, or AI thread template.
+- Two short paragraphs are fine when they improve readability.
+- No em dashes.
 - Avoid generic "AI is changing everything" language, vague hype, or empty engagement bait.
 - Avoid repeating the recent original posts list.
-- Diversify the batch. Do not let all options use the same hook, rhythm, or ending pattern.
-- At least one option should feel more analytical, and at least one should feel more practical for builders or operators.
 - Suggest an image only when a simple explainer visual would materially help the post.
 - Return JSON array only with keys: text, rationale, image_prompt, image_reason.
 """
@@ -499,7 +506,7 @@ Rules:
             self.config.ai_originals_model,
             prompt,
             temperature=0.8,
-            use_web_search=False,
+            use_web_search=self.supports_web_search(),
         )
         results: list[DraftPayload] = []
         for item in raw:

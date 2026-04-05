@@ -201,7 +201,7 @@ def run_dashboard(host: str = "127.0.0.1", port: int = 8787) -> None:
             try:
                 if parsed.path == "/original-topics":
                     topic_hint = form.get("topic_hint", [""])[0]
-                    suggestions = service.suggest_original_post_topics(topic_hint=topic_hint, limit=5)
+                    suggestions = service.suggest_original_post_topics(topic_hint=topic_hint)
                     self._send_json(
                         200,
                         {
@@ -239,7 +239,12 @@ def run_dashboard(host: str = "127.0.0.1", port: int = 8787) -> None:
                     return
                 if parsed.path == "/original":
                     topic = form.get("topic", [""])[0]
-                    draft_ids = service.create_original_drafts(topic, notify_telegram=False)
+                    selected_topics = _coerce_original_topics_payload(form.get("selected_topics_json", [""])[0])
+                    draft_ids = service.create_original_drafts(
+                        topic,
+                        selected_topics=selected_topics,
+                        notify_telegram=False,
+                    )
                     self._redirect(f"Created {len(draft_ids)} original draft(s).", anchor="latest-drafts")
                     return
                 if parsed.path == "/reset":
@@ -523,6 +528,8 @@ def _mini_bootstrap_payload(
             "drafting_enabled": service.config.drafting_enabled,
             "image_generation_enabled": image_generation_enabled,
             "original_post_options": service.config.worker.original_post_options,
+            "original_topics_per_batch": service.config.worker.original_topics_per_batch,
+            "original_topic_suggestion_limit": service.config.worker.original_topic_suggestion_limit,
             "max_original_drafts_per_day": service.config.worker.max_original_drafts_per_day,
             "originals_model": service.config.ai_originals_model,
             "web_research_enabled": bool(service.drafting and service.drafting.supports_web_search()),
@@ -572,17 +579,47 @@ def _mini_draft_action(service: XAgentService, payload: dict[str, Any]) -> dict[
 
 def _mini_original_action(service: XAgentService, payload: dict[str, Any]) -> dict[str, Any]:
     topic = str(payload.get("topic") or "")
-    draft_ids = service.create_original_drafts(topic, notify_telegram=False)
+    selected_topics = _coerce_original_topics_payload(payload.get("selected_topics"))
+    draft_ids = service.create_original_drafts(topic, selected_topics=selected_topics, notify_telegram=False)
     return {"message": f"Created {len(draft_ids)} original draft(s).", "draft_ids": draft_ids}
 
 
 def _mini_original_topics_action(service: XAgentService, payload: dict[str, Any]) -> dict[str, Any]:
     topic_hint = str(payload.get("topic_hint") or "")
-    suggestions = service.suggest_original_post_topics(topic_hint=topic_hint, limit=5)
+    suggestions = service.suggest_original_post_topics(topic_hint=topic_hint)
     return {
         "message": f"Found {len(suggestions)} timely topic suggestion(s).",
         "topic_suggestions": suggestions,
     }
+
+
+def _coerce_original_topics_payload(payload: Any) -> list[dict[str, str]]:
+    raw = payload
+    if isinstance(payload, str):
+        stripped = payload.strip()
+        if not stripped:
+            return []
+        try:
+            raw = json.loads(stripped)
+        except json.JSONDecodeError as exc:
+            raise ValueError("Selected topics payload must be valid JSON.") from exc
+    if raw is None:
+        return []
+    if not isinstance(raw, list):
+        raise ValueError("Selected topics payload must be a list.")
+    normalized: list[dict[str, str]] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        normalized.append(
+            {
+                "title": str(item.get("title") or "").strip(),
+                "why_now": str(item.get("why_now") or "").strip(),
+                "suggested_angle": str(item.get("suggested_angle") or "").strip(),
+                "prompt_seed": str(item.get("prompt_seed") or "").strip(),
+            }
+        )
+    return normalized
 
 
 def _render_mini_app() -> str:
@@ -953,6 +990,7 @@ def _render_mini_app() -> str:
         activeView: focusView === 'originals' ? 'originals' : 'queue',
         busy: false,
         refreshTimer: null,
+        selectedOriginalTopics: [],
         pendingCandidateDrafts: {},
         pendingCandidateActions: {},
         pendingDraftActions: {},
@@ -1207,6 +1245,19 @@ def _render_mini_app() -> str:
         }
       };
 
+      const normalizeOriginalTopicKey = (item) => String((item && (item.prompt_seed || item.title)) || '').trim().toLowerCase();
+      const selectedOriginalTopicCount = () => Array.isArray(state.selectedOriginalTopics) ? state.selectedOriginalTopics.length : 0;
+      const miniOriginalSelectionNote = (maxTopics, hasCustomBrief) => {
+        const selectedCount = selectedOriginalTopicCount();
+        if (selectedCount) {
+          return `${selectedCount} of ${maxTopics} topics selected. Generate will create 1 researched long-form draft per selected topic.`;
+        }
+        if (hasCustomBrief) {
+          return 'No timely topics selected. Generate will use the custom brief as one standalone original draft.';
+        }
+        return `No timely topics selected yet. Pick up to ${maxTopics} topics, or type one custom brief to generate a single original draft.`;
+      };
+
       const updateTopStats = (payload) => {
         statQueue.textContent = String(payload.queue.length);
         statQueueNote.textContent = payload.queue.length ? 'Candidates waiting now' : 'Queue is currently clear';
@@ -1401,44 +1452,63 @@ def _render_mini_app() -> str:
 
       const renderOriginals = (payload) => {
         originalsView.innerHTML = '';
-        const batchCount = Number(payload.app.original_post_options || 0);
+        const batchCount = Number(payload.app.original_topics_per_batch || 0);
+        const suggestionCount = Number(payload.app.original_topic_suggestion_limit || payload.app.original_post_options || 0);
         const dailyCap = Number(payload.app.max_original_drafts_per_day || 0);
         const originalsModel = String(payload.app.originals_model || '');
         const researchNote = payload.app.web_research_enabled ? 'with live web research' : 'from your local signal pool';
         const topicSuggestions = Array.isArray(payload.topic_suggestions) ? payload.topic_suggestions : [];
+        const availableKeys = new Set(topicSuggestions.map((item) => normalizeOriginalTopicKey(item)).filter(Boolean));
+        state.selectedOriginalTopics = (state.selectedOriginalTopics || []).filter((item) => availableKeys.has(normalizeOriginalTopicKey(item)));
+        if (!topicSuggestions.length) {
+          state.selectedOriginalTopics = [];
+        }
+        const selectedKeys = new Set((state.selectedOriginalTopics || []).map((item) => normalizeOriginalTopicKey(item)).filter(Boolean));
         const composer = document.createElement('section');
         composer.className = 'panel';
         composer.innerHTML = `
           <div class="section-label">Original Posts</div>
           <h2 style="margin:0 0 8px;">Generate standalone ideas</h2>
-          <div class="note">Generate up to ${batchCount || 1} longer standalone posts ${researchNote}. Daily cap: ${dailyCap || batchCount || 1}. ${originalsModel ? `Model: ${escapeHtml(originalsModel)}.` : ''}</div>
+          <div class="note">Find ${suggestionCount || 1} timely topics, then select up to ${batchCount || 1}. Clearfeed will generate 1 longer standalone draft per selected topic ${researchNote}. Daily cap: ${dailyCap || batchCount || 1}. ${originalsModel ? `Model: ${escapeHtml(originalsModel)}.` : ''}</div>
           <div style="margin-top:12px;">
-            <input type="text" id="original-topic" placeholder="Optional topic, angle, or context">
+            <input type="text" id="original-topic" placeholder="Optional global direction to apply across selected topics, or type one custom topic if you are not selecting from the list.">
+            <div class="note" id="original-selection-note" style="margin-top:10px;">${escapeHtml(miniOriginalSelectionNote(batchCount || 1, false))}</div>
             <div class="actions">
               <button type="button" class="ghost" id="find-original-topics" ${payload.app.drafting_enabled ? '' : 'disabled'}>Find Timely Topics</button>
-              <button type="button" class="ok" id="generate-originals" ${payload.app.drafting_enabled ? '' : 'disabled'}>Generate Original Drafts</button>
+              <button type="button" class="ok" id="generate-originals" ${payload.app.drafting_enabled ? '' : 'disabled'}>Generate Selected Drafts</button>
             </div>
           </div>
         `;
         originalsView.appendChild(composer);
+        const input = composer.querySelector('#original-topic');
+        const selectionNote = composer.querySelector('#original-selection-note');
+        if (input) {
+          input.addEventListener('input', () => {
+            if (selectionNote) {
+              selectionNote.textContent = miniOriginalSelectionNote(batchCount || 1, Boolean(input.value.trim()));
+            }
+          });
+        }
         if (topicSuggestions.length) {
           const suggestionsPanel = document.createElement('section');
           suggestionsPanel.className = 'panel';
-          suggestionsPanel.innerHTML = '<div class="section-label">Timely Topics</div><h2 style="margin:0 0 8px;">Pick what is worth posting about</h2><div class="note">Review the signal, decide whether it is worth posting about, then load the topic and angle into the draft brief before you generate the batch.</div>';
+          suggestionsPanel.innerHTML = `<div class="section-label">Timely Topics</div><h2 style="margin:0 0 8px;">Pick what is worth posting about</h2><div class="note">Review the signal, choose up to ${batchCount || 1} distinct topics, then generate 1 longer, research-backed draft per selected topic.</div>`;
           topicSuggestions.forEach((item, index) => {
             const card = document.createElement('article');
             card.className = 'subcard';
+            const topicPayload = encodeURIComponent(JSON.stringify(item));
+            const topicKey = normalizeOriginalTopicKey(item);
+            const isSelected = selectedKeys.has(topicKey);
             const title = escapeHtml(item.title || `Topic ${index + 1}`);
             const whyNow = escapeHtml(item.why_now || '');
             const suggestedAngle = escapeHtml(item.suggested_angle || '');
-            const promptSeed = escapeHtml(item.prompt_seed || '');
             card.innerHTML = `
               <div class="draft-head">
                 <div>
                   <div class="section-label">Topic ${index + 1}</div>
                   <h3 style="margin:0 0 6px;">${title}</h3>
                 </div>
-                <button type="button" class="ok" data-use-original-topic="${promptSeed}">Use Topic + Angle</button>
+                <button type="button" class="${isSelected ? 'ok' : 'ghost'}" data-toggle-original-topic="${topicPayload}">${isSelected ? 'Selected' : 'Select Topic'}</button>
               </div>
               ${whyNow ? `<div class="note" style="margin-top:10px;"><strong>Why now:</strong><br>${whyNow}</div>` : ''}
               ${suggestedAngle ? `<div class="note" style="margin-top:10px;"><strong>Suggested angle:</strong><br>${suggestedAngle}</div>` : ''}
@@ -1571,11 +1641,21 @@ def _render_mini_app() -> str:
         if (target.id === 'generate-originals') {
           try {
             const input = document.getElementById('original-topic');
+            const maxTopics = Number((state.payload && state.payload.app && state.payload.app.original_topics_per_batch) || 1);
+            const topic = input ? input.value : '';
+            if (!selectedOriginalTopicCount() && !String(topic || '').trim()) {
+              setMessage(`Select up to ${maxTopics} timely topics or type one custom brief first.`, true);
+              return;
+            }
             setBusy(true, 'Generating originals...');
             const payload = await request('/api/mini/original', {
               method: 'POST',
-              body: JSON.stringify({ topic: input ? input.value : '' }),
+              body: JSON.stringify({
+                topic,
+                selected_topics: state.selectedOriginalTopics,
+              }),
             });
+            state.selectedOriginalTopics = [];
             render(payload);
             setMessage(payload.message || 'Original drafts created.');
           } catch (error) {
@@ -1593,6 +1673,7 @@ def _render_mini_app() -> str:
               method: 'POST',
               body: JSON.stringify({ topic_hint: input ? input.value : '' }),
             });
+            state.selectedOriginalTopics = [];
             render(payload);
             setMessage(payload.message || 'Timely topics loaded.');
           } catch (error) {
@@ -1602,15 +1683,34 @@ def _render_mini_app() -> str:
           }
           return;
         }
-        const useOriginalTopic = target.getAttribute('data-use-original-topic');
-        if (useOriginalTopic) {
-          const input = document.getElementById('original-topic');
-          if (input) {
-            input.value = useOriginalTopic;
-            input.focus();
-            input.setSelectionRange(input.value.length, input.value.length);
+        const toggleOriginalTopic = target.getAttribute('data-toggle-original-topic');
+        if (toggleOriginalTopic) {
+          const maxTopics = Number((state.payload && state.payload.app && state.payload.app.original_topics_per_batch) || 1);
+          let topic = null;
+          try {
+            topic = JSON.parse(decodeURIComponent(toggleOriginalTopic));
+          } catch (_error) {
+            setMessage('Topic selection failed.', true);
+            return;
           }
-          setMessage('Loaded topic and angle into the draft brief.');
+          const topicKey = normalizeOriginalTopicKey(topic);
+          const current = Array.isArray(state.selectedOriginalTopics) ? [...state.selectedOriginalTopics] : [];
+          const existingIndex = current.findIndex((item) => normalizeOriginalTopicKey(item) === topicKey);
+          if (existingIndex >= 0) {
+            current.splice(existingIndex, 1);
+            state.selectedOriginalTopics = current;
+            renderOriginals(state.payload);
+            setMessage('Topic removed from the batch.');
+            return;
+          }
+          if (current.length >= maxTopics) {
+            setMessage(`Pick up to ${maxTopics} topics per batch.`, true);
+            return;
+          }
+          current.push(topic);
+          state.selectedOriginalTopics = current;
+          renderOriginals(state.payload);
+          setMessage('Topic added. Generate will create one draft for it.');
           return;
         }
         const copyDraftId = target.getAttribute('data-copy-draft');
@@ -2268,6 +2368,10 @@ def _render_dashboard(
       background: rgba(4, 10, 17, .38);
       display:grid;
       gap: 10px;
+    }}
+    .topic-suggestion-card[data-selected="true"] {{
+      border-color: rgba(52,211,153,.34);
+      background: rgba(52,211,153,.09);
     }}
     .topic-suggestion-top {{
       display:flex;
@@ -3238,17 +3342,18 @@ def _render_dashboard(
       </div>
       <section class="card span-12 original-drafts-card">
         <h2>Original Draft Studio</h2>
-        <div class="section-note">Use this for standalone posts that are not tied to a tweet in the reply queue. Start by finding a timely topic, decide if it is worth posting about, then load the suggested angle into your draft brief before generating the batch.</div>
+        <div class="section-note">Use this for standalone posts that are not tied to a tweet in the reply queue. The flow is: find timely topics, select up to 3 distinct ones, then generate 1 longer original draft per selected topic.</div>
         <div class="originals-workspace">
           <section class="originals-pane">
             <div class="section-label">Draft Brief</div>
-            <h3>Shape the post before you generate it</h3>
-            <p class="section-note">Tell Clearfeed what you want to say, what angle to take, or what point you want the posts to make. This can be a topic, a claim, a disagreement, or a builder takeaway.</p>
+            <h3>Add direction before you generate</h3>
+            <p class="section-note">Use the box below for optional global direction that should apply across the selected topics. If you are not selecting from the topic list, you can also type one custom topic here and generate a single original draft from it.</p>
             <form method="post" action="/original" class="original-draft-form">
-              <textarea name="topic" class="original-topic-input" data-original-topic-input placeholder="Example: OpenAI's latest model launch, but focus on what this changes for builders choosing between premium APIs and open models."></textarea>
+              <textarea name="topic" class="original-topic-input" data-original-topic-input placeholder="Example: For each selected topic, focus on what changes for builders choosing between premium APIs, open models, and agent workflows."></textarea>
+              <input type="hidden" name="selected_topics_json" value="[]" data-original-selected-topics>
               <div class="original-draft-actions">
                 <button type="button" class="ghost-button" data-find-original-topics{' disabled title="Configure the selected AI provider in .env to enable topic discovery."' if not drafting_enabled else ''}>Find Timely Topics</button>
-                <button class="ok" type="submit" data-busy-label="Generating original drafts..."{' disabled title="Configure the selected AI provider in .env to enable original drafting."' if not drafting_enabled else ''}>Generate Original Drafts</button>
+                <button class="ok" type="submit" data-busy-label="Generating original drafts..."{' disabled title="Configure the selected AI provider in .env to enable original drafting."' if not drafting_enabled else ''}>Generate Selected Drafts</button>
               </div>
             </form>
             {'' if drafting_enabled else '<div class="inline-warning">Original drafting is disabled until the selected AI provider is configured in <code>.env</code>.</div>'}
@@ -3256,7 +3361,7 @@ def _render_dashboard(
           <section class="originals-pane">
             <div class="section-label">Topic Discovery</div>
             <h3>Find something timely worth posting about</h3>
-            <p class="section-note">Clearfeed uses current signals and, when available, live web research to suggest topics with a concrete angle. Review the suggestions first, then choose whether you actually want to post on one of them.</p>
+            <p class="section-note">Clearfeed uses current signals and, when available, live web research to suggest 5 distinct topics with concrete angles. Select up to 3 of them and Clearfeed will generate 1 researched long-form draft per selected topic.</p>
             <div class="original-topics-status" data-original-topics-status data-state="idle">Press <strong>Find Timely Topics</strong> to scan current discussions and surface a few ideas worth considering.</div>
             <div class="original-topic-suggestions" data-original-topics>
               <div class="topic-suggestion-empty">No topic suggestions loaded yet. Once you fetch them, this panel will show what is happening now, why it matters, and the angle Clearfeed thinks is strongest.</div>
@@ -3658,8 +3763,49 @@ def _render_dashboard(
     return result;
   }};
   const originalTopicInput = document.querySelector('[data-original-topic-input]');
+  const originalSelectedTopicsInput = document.querySelector('[data-original-selected-topics]');
   const originalTopicsStatus = document.querySelector('[data-original-topics-status]');
   const originalTopicsRoot = document.querySelector('[data-original-topics]');
+  const maxOriginalTopicSelections = 3;
+  let selectedOriginalTopics = [];
+  const normalizeOriginalTopicKey = (item) => String((item && (item.prompt_seed || item.title)) || '').trim().toLowerCase();
+  const syncOriginalTopicSelections = () => {{
+    if (originalSelectedTopicsInput) {{
+      originalSelectedTopicsInput.value = JSON.stringify(selectedOriginalTopics);
+    }}
+    if (originalTopicsRoot) {{
+      originalTopicsRoot.querySelectorAll('[data-original-topic-card]').forEach((card) => {{
+        const key = decodeURIComponent(String(card.getAttribute('data-topic-key') || ''));
+        const selected = selectedOriginalTopics.some((item) => normalizeOriginalTopicKey(item) === key);
+        card.dataset.selected = selected ? 'true' : 'false';
+        const button = card.querySelector('[data-toggle-original-topic]');
+        if (button) {{
+          button.textContent = selected ? 'Selected' : 'Select Topic';
+          button.classList.toggle('ok', selected);
+          button.classList.toggle('ghost-button', !selected);
+        }}
+      }});
+    }}
+    const hasCustomBrief = Boolean(originalTopicInput && originalTopicInput.value.trim());
+    if (selectedOriginalTopics.length) {{
+      setOriginalTopicsStatus(
+        `${{selectedOriginalTopics.length}} of ${{maxOriginalTopicSelections}} topics selected. Generate will create 1 longer, researched draft per selected topic.`,
+        'ready',
+      );
+      return;
+    }}
+    if (hasCustomBrief) {{
+      setOriginalTopicsStatus(
+        'No timely topics selected. Generate will use the custom brief as one standalone original draft.',
+        'ready',
+      );
+      return;
+    }}
+    setOriginalTopicsStatus(
+      'Pick up to 3 topics from the list below, or type one custom brief to generate a single standalone draft.',
+      'idle',
+    );
+  }};
   const setOriginalTopicsStatus = (message, state = 'idle') => {{
     if (!originalTopicsStatus) {{
       return;
@@ -3672,28 +3818,40 @@ def _render_dashboard(
       return;
     }}
     if (!Array.isArray(items) || !items.length) {{
+      selectedOriginalTopics = [];
+      syncOriginalTopicSelections();
       originalTopicsRoot.innerHTML = '<div class="topic-suggestion-empty">No timely topics came back for this pass. Try a different hint or rerun the scan in a few minutes when the signal set changes.</div>';
       return;
     }}
+    const availableKeys = new Set(items.map((item) => normalizeOriginalTopicKey(item)).filter(Boolean));
+    selectedOriginalTopics = selectedOriginalTopics.filter((item) => availableKeys.has(normalizeOriginalTopicKey(item)));
     originalTopicsRoot.innerHTML = items.map((item, index) => {{
       const title = escapeHtml(item.title || `Topic ${{index + 1}}`);
       const whyNow = escapeHtml(item.why_now || '');
       const suggestedAngle = escapeHtml(item.suggested_angle || '');
-      const promptSeed = escapeHtml(item.prompt_seed || '');
+      const topicPayload = encodeURIComponent(JSON.stringify({{
+        title: item.title || '',
+        why_now: item.why_now || '',
+        suggested_angle: item.suggested_angle || '',
+        prompt_seed: item.prompt_seed || '',
+      }}));
+      const topicKey = encodeURIComponent(normalizeOriginalTopicKey(item));
+      const isSelected = selectedOriginalTopics.some((selected) => normalizeOriginalTopicKey(selected) === normalizeOriginalTopicKey(item));
       return `
-        <article class="topic-suggestion-card">
+        <article class="topic-suggestion-card" data-original-topic-card data-topic-key="${{topicKey}}" data-selected="${{isSelected ? 'true' : 'false'}}">
           <div class="topic-suggestion-top">
             <div>
               <div class="section-label">Topic ${{index + 1}}</div>
               <h4>${{title}}</h4>
             </div>
-            <button type="button" class="ok" data-use-original-seed="${{promptSeed}}">Use Topic + Angle</button>
+            <button type="button" class="${{isSelected ? 'ok' : 'ghost-button'}}" data-toggle-original-topic="${{topicPayload}}">${{isSelected ? 'Selected' : 'Select Topic'}}</button>
           </div>
           ${{whyNow ? `<p class="topic-suggestion-copy"><strong>Why now:</strong><br>${{whyNow}}</p>` : ''}}
           ${{suggestedAngle ? `<p class="topic-suggestion-copy"><strong>Suggested angle:</strong><br>${{suggestedAngle}}</p>` : ''}}
         </article>
       `;
     }}).join('');
+    syncOriginalTopicSelections();
   }};
   const fetchOriginalTopicSuggestions = async (topicHint) => {{
     const body = new URLSearchParams();
@@ -3752,6 +3910,18 @@ def _render_dashboard(
       form.dataset.bound = 'true';
       form.addEventListener('submit', async (event) => {{
         const inQueue = Boolean(form.closest('[data-queue-root]'));
+        if (!inQueue && form.matches('.original-draft-form')) {{
+          const typedBrief = originalTopicInput ? originalTopicInput.value.trim() : '';
+          if (originalSelectedTopicsInput) {{
+            originalSelectedTopicsInput.value = JSON.stringify(selectedOriginalTopics);
+          }}
+          if (!selectedOriginalTopics.length && !typedBrief) {{
+            event.preventDefault();
+            setOriginalTopicsStatus('Select up to 3 timely topics or write one custom brief first.', 'error');
+            showToast('Choose topics or add a brief first');
+            return;
+          }}
+        }}
         let editor = form.querySelector('[data-draft-editor]');
         const draftIdField = form.querySelector('input[name="draft_id"]');
         const hiddenDraftText = form.querySelector('input[name="draft_text"]');
@@ -3862,17 +4032,27 @@ def _render_dashboard(
     }});
   }};
   bindDraftEditorsAndForms();
+  if (originalTopicInput) {{
+    originalTopicInput.addEventListener('input', () => {{
+      if (!selectedOriginalTopics.length) {{
+        syncOriginalTopicSelections();
+      }}
+    }});
+  }}
+  syncOriginalTopicSelections();
   document.addEventListener('click', async (event) => {{
     const button = event.target.closest('[data-copy-draft]');
     if (!button) {{
       const finder = event.target.closest('[data-find-original-topics]');
       if (finder) {{
         try {{
+          selectedOriginalTopics = [];
+          syncOriginalTopicSelections();
           setOriginalTopicsStatus('Scanning current signals and live web context for timely topics...', 'idle');
           showBusy('Finding timely topics...');
           const payload = await fetchOriginalTopicSuggestions(originalTopicInput ? originalTopicInput.value : '');
           renderOriginalTopicSuggestions(payload.topic_suggestions || []);
-          setOriginalTopicsStatus('Review the suggestions below. If one is worth posting about, load it into the draft brief and adjust the angle before generating drafts.', 'ready');
+          setOriginalTopicsStatus('Review the suggestions below, pick up to 3 topics, then generate 1 long-form draft per selected topic.', 'ready');
           showToast(payload.message || 'Timely topics loaded');
         }} catch (error) {{
           setOriginalTopicsStatus(escapeHtml(String(error.message || 'Topic discovery failed.')), 'error');
@@ -3882,15 +4062,32 @@ def _render_dashboard(
         }}
         return;
       }}
-      const useSeedButton = event.target.closest('[data-use-original-seed]');
-      if (useSeedButton) {{
-        if (originalTopicInput) {{
-          originalTopicInput.value = useSeedButton.dataset.useOriginalSeed || '';
-          originalTopicInput.focus();
-          originalTopicInput.setSelectionRange(originalTopicInput.value.length, originalTopicInput.value.length);
+      const toggleTopicButton = event.target.closest('[data-toggle-original-topic]');
+      if (toggleTopicButton) {{
+        let topic = null;
+        try {{
+          topic = JSON.parse(decodeURIComponent(toggleTopicButton.getAttribute('data-toggle-original-topic') || ''));
+        }} catch (_err) {{
+          setOriginalTopicsStatus('Topic selection failed.', 'error');
+          showToast('Topic selection failed');
+          return;
         }}
-        setOriginalTopicsStatus('Topic and suggested angle loaded into the draft brief. Edit it if you want a different take before generating drafts.', 'ready');
-        showToast('Loaded topic into draft brief');
+        const topicKey = normalizeOriginalTopicKey(topic);
+        const existingIndex = selectedOriginalTopics.findIndex((item) => normalizeOriginalTopicKey(item) === topicKey);
+        if (existingIndex >= 0) {{
+          selectedOriginalTopics.splice(existingIndex, 1);
+          syncOriginalTopicSelections();
+          showToast('Topic removed from batch');
+          return;
+        }}
+        if (selectedOriginalTopics.length >= maxOriginalTopicSelections) {{
+          setOriginalTopicsStatus(`Pick up to ${{maxOriginalTopicSelections}} topics per batch.`, 'error');
+          showToast('Topic limit reached');
+          return;
+        }}
+        selectedOriginalTopics.push(topic);
+        syncOriginalTopicSelections();
+        showToast('Topic added to batch');
         return;
       }}
       return;

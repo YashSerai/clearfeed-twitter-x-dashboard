@@ -288,6 +288,11 @@ def load_config(root: str | Path | None = None) -> AppConfig:
     worker_cfg.setdefault("list_min_views_age_minutes", 10)
     worker_cfg.setdefault("homepage_min_views_required", 10000)
     worker_cfg.setdefault("homepage_min_views_age_minutes", 10)
+    worker_cfg.setdefault("original_topics_per_batch", 3)
+    worker_cfg.setdefault(
+        "original_topic_suggestion_limit",
+        int(worker_cfg.get("original_post_options", 5)),
+    )
     worker_cfg.setdefault("focus_keywords", [])
     worker_cfg.setdefault("secondary_focus_keywords", [])
     worker_cfg.setdefault("deprioritize_keywords", [])
@@ -317,9 +322,17 @@ def load_config(root: str | Path | None = None) -> AppConfig:
         "WORKER_ORIGINAL_POST_OPTIONS",
         int(worker_cfg["original_post_options"]),
     )
+    worker_cfg["original_topics_per_batch"] = _get_int(
+        "WORKER_ORIGINAL_TOPICS_PER_BATCH",
+        int(worker_cfg["original_topics_per_batch"]),
+    )
     worker_cfg["max_original_drafts_per_day"] = _get_int(
         "WORKER_MAX_ORIGINAL_DRAFTS_PER_DAY",
         int(worker_cfg["max_original_drafts_per_day"]),
+    )
+    worker_cfg["original_topic_suggestion_limit"] = _get_int(
+        "WORKER_ORIGINAL_TOPIC_SUGGESTION_LIMIT",
+        int(worker_cfg["original_topic_suggestion_limit"]),
     )
     legacy_voice_review_enabled = bool(worker_cfg.get("voice_review_enabled", True))
     legacy_voice_review_interval_hours = int(worker_cfg.get("voice_review_interval_hours", 24))

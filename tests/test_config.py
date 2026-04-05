@@ -47,7 +47,9 @@ class ConfigTests(unittest.TestCase):
                   scrape_timeout_ms: 45000
                   recent_signals_limit: 30
                   original_post_options: 1
+                  original_topics_per_batch: 3
                   max_original_drafts_per_day: 3
+                  original_topic_suggestion_limit: 5
                   default_image_mode: suggest_only
                   homepage_scrape_limit: 0
                   homepage_llm_pool_size: 0
@@ -124,12 +126,16 @@ class ConfigTests(unittest.TestCase):
             os.environ["WORKER_MIN_DELAY_MINUTES"] = "22"
             os.environ["WORKER_MAX_DELAY_MINUTES"] = "41"
             os.environ["WORKER_ORIGINAL_POST_OPTIONS"] = "5"
+            os.environ["WORKER_ORIGINAL_TOPICS_PER_BATCH"] = "3"
             os.environ["WORKER_MAX_ORIGINAL_DRAFTS_PER_DAY"] = "7"
+            os.environ["WORKER_ORIGINAL_TOPIC_SUGGESTION_LIMIT"] = "6"
             config = load_config(root)
             self.assertEqual(config.worker.min_delay_minutes, 22)
             self.assertEqual(config.worker.max_delay_minutes, 41)
             self.assertEqual(config.worker.original_post_options, 5)
+            self.assertEqual(config.worker.original_topics_per_batch, 3)
             self.assertEqual(config.worker.max_original_drafts_per_day, 7)
+            self.assertEqual(config.worker.original_topic_suggestion_limit, 6)
 
     def test_openai_compatible_provider_config(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

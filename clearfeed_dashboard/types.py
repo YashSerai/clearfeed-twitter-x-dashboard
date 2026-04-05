@@ -31,7 +31,9 @@ class WorkerSettings:
     scrape_timeout_ms: int
     recent_signals_limit: int
     original_post_options: int
+    original_topics_per_batch: int
     max_original_drafts_per_day: int
+    original_topic_suggestion_limit: int
     default_image_mode: str
     homepage_scrape_limit: int
     homepage_llm_pool_size: int
