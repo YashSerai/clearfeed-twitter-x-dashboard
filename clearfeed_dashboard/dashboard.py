@@ -410,6 +410,30 @@ def _latest_original_drafts(database_path: Path) -> list[sqlite3.Row]:
     )
 
 
+def _draft_history_rows(database_path: Path) -> list[sqlite3.Row]:
+    return _query_rows(
+        database_path,
+        """
+        select
+            d.id,
+            d.candidate_id,
+            d.draft_type,
+            d.status,
+            d.draft_text,
+            d.created_at,
+            d.updated_at,
+            d.posted_tweet_id,
+            d.generation_notes,
+            s.url as source_url,
+            s.author_handle as source_author_handle
+        from drafts d
+        left join candidates c on c.id = d.candidate_id
+        left join scraped_posts s on s.tweet_id = c.tweet_id
+        order by d.id desc
+        """,
+    )
+
+
 def _serialize_mini_draft(
     row: sqlite3.Row | dict[str, Any],
     *,
@@ -2045,6 +2069,7 @@ def _render_dashboard(
         limit 12
         """,
     )
+    draft_history_rows = _draft_history_rows(database_path)
     overview_stats = _overview_stats(database_path, live_queue_count=len(queue_candidates))
 
     worker_state = status.get("state", "unknown")
@@ -2094,6 +2119,7 @@ def _render_dashboard(
         )
         for row in latest_original_drafts
     )
+    draft_history_html = _draft_history_table(draft_history_rows)
     flash_html = (
         f'<div class="notice ok" data-notice="flash"><span>{_escape(flash)}</span><button type="button" class="notice-close" data-dismiss-notice aria-label="Dismiss notice">Dismiss</button></div>'
         if flash
@@ -2401,6 +2427,61 @@ def _render_dashboard(
       color: var(--muted);
       line-height: 1.6;
       background: rgba(255,255,255,.02);
+    }}
+    .history-shell {{
+      border: 1px solid rgba(255,255,255,.06);
+      border-radius: 18px;
+      background: rgba(7, 13, 20, .42);
+      overflow: hidden;
+    }}
+    .history-scroll {{
+      max-height: 520px;
+      overflow: auto;
+    }}
+    .history-table {{
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 860px;
+    }}
+    .history-table th,
+    .history-table td {{
+      padding: 12px 14px;
+      border-bottom: 1px solid rgba(255,255,255,.06);
+      text-align: left;
+      vertical-align: top;
+      font-size: 13px;
+      line-height: 1.5;
+    }}
+    .history-table th {{
+      position: sticky;
+      top: 0;
+      z-index: 1;
+      background: rgba(12, 21, 31, .98);
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: .08em;
+      font-size: 11px;
+    }}
+    .history-table td strong {{
+      display: block;
+      margin-bottom: 4px;
+      font-size: 14px;
+      color: var(--text);
+    }}
+    .history-preview {{
+      max-width: 440px;
+      color: var(--muted);
+      white-space: pre-wrap;
+      word-break: break-word;
+    }}
+    .history-meta {{
+      color: var(--muted);
+      display: grid;
+      gap: 4px;
+    }}
+    .history-empty {{
+      padding: 18px;
+      color: var(--muted);
     }}
     .original-topic-input {{
       min-height: 148px;
@@ -3332,43 +3413,6 @@ def _render_dashboard(
         <h2>Setup Status</h2>
         <div class="setup-grid">{setup_html}</div>
       </section>
-      <section class="card span-12" id="voice-review">
-        <h2>Adaptive Voice</h2>
-        <div class="section-note">Clearfeed learns from what you edit, keep, and reject in the dashboard, then suggests a better <code>Voice.md</code> over time. <code>Humanizer.md</code> stays fixed.</div>
-        {voice_review_html}
-      </section>
-      <div class="span-12" id="archive-voice">
-        {archive_voice_html}
-      </div>
-      <section class="card span-12 original-drafts-card">
-        <h2>Original Draft Studio</h2>
-        <div class="section-note">Use this for standalone posts that are not tied to a tweet in the reply queue. The flow is: find timely topics, select up to 3 distinct ones, then generate 1 longer original draft per selected topic.</div>
-        <div class="originals-workspace">
-          <section class="originals-pane">
-            <div class="section-label">Draft Brief</div>
-            <h3>Add direction before you generate</h3>
-            <p class="section-note">Use the box below for optional global direction that should apply across the selected topics. If you are not selecting from the topic list, you can also type one custom topic here and generate a single original draft from it.</p>
-            <form method="post" action="/original" class="original-draft-form">
-              <textarea name="topic" class="original-topic-input" data-original-topic-input placeholder="Example: For each selected topic, focus on what changes for builders choosing between premium APIs, open models, and agent workflows."></textarea>
-              <input type="hidden" name="selected_topics_json" value="[]" data-original-selected-topics>
-              <div class="original-draft-actions">
-                <button type="button" class="ghost-button" data-find-original-topics{' disabled title="Configure the selected AI provider in .env to enable topic discovery."' if not drafting_enabled else ''}>Find Timely Topics</button>
-                <button class="ok" type="submit" data-busy-label="Generating original drafts..."{' disabled title="Configure the selected AI provider in .env to enable original drafting."' if not drafting_enabled else ''}>Generate Selected Drafts</button>
-              </div>
-            </form>
-            {'' if drafting_enabled else '<div class="inline-warning">Original drafting is disabled until the selected AI provider is configured in <code>.env</code>.</div>'}
-          </section>
-          <section class="originals-pane">
-            <div class="section-label">Topic Discovery</div>
-            <h3>Find something timely worth posting about</h3>
-            <p class="section-note">Clearfeed uses current signals and, when available, live web research to suggest 5 distinct topics with concrete angles. Select up to 3 of them and Clearfeed will generate 1 researched long-form draft per selected topic.</p>
-            <div class="original-topics-status" data-original-topics-status data-state="idle">Press <strong>Find Timely Topics</strong> to scan current discussions and surface a few ideas worth considering.</div>
-            <div class="original-topic-suggestions" data-original-topics>
-              <div class="topic-suggestion-empty">No topic suggestions loaded yet. Once you fetch them, this panel will show what is happening now, why it matters, and the angle Clearfeed thinks is strongest.</div>
-            </div>
-          </section>
-        </div>
-      </section>
       <section class="card span-6">
         <h2>Worker Flow</h2>
         <div class="section-note">{_escape(cadence_copy)}</div>
@@ -3419,13 +3463,65 @@ def _render_dashboard(
             </aside>
           </div>
         </section>
+      <section class="card span-12 original-drafts-card">
+        <h2>Original Draft Studio</h2>
+        <div class="section-note">Use this for standalone posts that are not tied to a tweet in the reply queue. The flow is: find timely topics, select up to 3 distinct ones, then generate 1 longer original draft per selected topic.</div>
+        <div class="originals-workspace">
+          <section class="originals-pane">
+            <div class="section-label">Draft Brief</div>
+            <h3>Add direction before you generate</h3>
+            <p class="section-note">Use the box below for optional global direction that should apply across the selected topics. If you are not selecting from the topic list, you can also type one custom topic here and generate a single original draft from it.</p>
+            <form method="post" action="/original" class="original-draft-form">
+              <textarea name="topic" class="original-topic-input" data-original-topic-input placeholder="Example: For each selected topic, focus on what changes for builders choosing between premium APIs, open models, and agent workflows."></textarea>
+              <input type="hidden" name="selected_topics_json" value="[]" data-original-selected-topics>
+              <div class="original-draft-actions">
+                <button type="button" class="ghost-button" data-find-original-topics{' disabled title="Configure the selected AI provider in .env to enable topic discovery."' if not drafting_enabled else ''}>Find Timely Topics</button>
+                <button class="ok" type="submit" data-busy-label="Generating original drafts..."{' disabled title="Configure the selected AI provider in .env to enable original drafting."' if not drafting_enabled else ''}>Generate Selected Drafts</button>
+              </div>
+            </form>
+            {'' if drafting_enabled else '<div class="inline-warning">Original drafting is disabled until the selected AI provider is configured in <code>.env</code>.</div>'}
+          </section>
+          <section class="originals-pane">
+            <div class="section-label">Topic Discovery</div>
+            <h3>Find something timely worth posting about</h3>
+            <p class="section-note">Clearfeed uses current signals and, when available, live web research to suggest 5 distinct topics with concrete angles. Select up to 3 of them and Clearfeed will generate 1 researched long-form draft per selected topic.</p>
+            <div class="original-topics-status" data-original-topics-status data-state="idle">Press <strong>Find Timely Topics</strong> to scan current discussions and surface a few ideas worth considering.</div>
+            <div class="original-topic-suggestions" data-original-topics>
+              <div class="topic-suggestion-empty">No topic suggestions loaded yet. Once you fetch them, this panel will show what is happening now, why it matters, and the angle Clearfeed thinks is strongest.</div>
+            </div>
+          </section>
+        </div>
+      </section>
       <section class="card span-12" id="latest-drafts">
-        <h2>Original Drafts</h2>
-        <div class="section-note">Standalone drafts created from the topic box stay here. Reply drafts stay inside the queue cards above.</div>
+        <h2>Generated Original Drafts</h2>
+        <div class="section-note">New standalone drafts from the studio land here immediately after generation. This section shows the latest originals; the full draft history is right below.</div>
         <div class="original-drafts-grid">
           {original_drafts_html or '<p class="empty-note">No standalone drafts yet.</p>'}
         </div>
       </section>
+      <section class="card span-12" id="draft-history">
+        <details class="dev-details">
+          <summary>
+            <span class="dev-summary-copy">
+              <span class="dev-summary-title">Draft History</span>
+              <span class="dev-summary-subtitle">Latest 30 drafts first. Open Read More History for older entries.</span>
+            </span>
+            <span class="dev-chevron" aria-hidden="true">&#9662;</span>
+          </summary>
+          <div class="dev-details-body">
+            <div class="section-note">Reply drafts include the source tweet link. Standalone originals stay marked as standalone unless a posted tweet id was recorded. Everything here stays local until you run <strong>Clear History</strong>.</div>
+            {draft_history_html}
+          </div>
+        </details>
+      </section>
+      <section class="card span-12" id="voice-review">
+        <h2>Adaptive Voice</h2>
+        <div class="section-note">Clearfeed learns from what you edit, keep, and reject in the dashboard, then suggests a better <code>Voice.md</code> over time. <code>Humanizer.md</code> stays fixed.</div>
+        {voice_review_html}
+      </section>
+      <div class="span-12" id="archive-voice">
+        {archive_voice_html}
+      </div>
       <section class="card span-12">
         <details class="dev-details">
           <summary>
@@ -5000,6 +5096,87 @@ def _original_draft_card(
         f"{_draft_text_editor(int(row['id']), row['draft_text'] or '', str(row['status'] or ''), draft_text_limit)}"
         f"{controls}"
         '</article>'
+    )
+
+
+def _draft_history_table(rows: list[sqlite3.Row]) -> str:
+    if not rows:
+        return '<div class="history-empty">No drafts recorded yet.</div>'
+    initial_limit = 30
+
+    def render_rows(items: list[sqlite3.Row]) -> str:
+        body: list[str] = []
+        for row in items:
+            draft_type = str(row["draft_type"] or "")
+            status = str(row["status"] or "")
+            source_url = str(row["source_url"] or "").strip()
+            source_author = str(row["source_author_handle"] or "").strip()
+            posted_tweet_id = str(row["posted_tweet_id"] or "").strip()
+            preview = str(row["draft_text"] or "").strip()
+            if len(preview) > 320:
+                preview = preview[:317].rstrip() + "..."
+            source_html = "Standalone original draft"
+            if source_url:
+                source_label = f"Reply target: @{source_author}" if source_author else "Reply target"
+                source_html = f'<a href="{_escape(source_url)}" target="_blank">{_escape(source_label)}</a>'
+            posted_html = _escape(posted_tweet_id) if posted_tweet_id else "Not recorded"
+            generation_notes = str(row["generation_notes"] or "").strip()
+            history_meta = []
+            if generation_notes:
+                history_meta.append(f"Brief: {_escape(generation_notes).replace(chr(10), '<br>')}")
+            body.append(
+                "<tr>"
+                f"<td><strong>#{row['id']}</strong><div class=\"history-meta\">"
+                f"<span>{_escape(draft_type or 'draft')}</span>"
+                f"<span>{_escape(_status_label(status or 'unknown'))}</span>"
+                f"</div></td>"
+                f"<td><div class=\"history-meta\"><span>Created {_escape(_fmt_time(row['created_at']))}</span><span>Updated {_escape(_fmt_time(row['updated_at']))}</span></div></td>"
+                f"<td><div class=\"history-meta\"><span>{source_html}</span><span>{'Posted tweet: ' + posted_html if posted_tweet_id else posted_html}</span></div></td>"
+                f"<td><div class=\"history-preview\">{_escape(preview)}</div></td>"
+                f"<td><div class=\"history-meta\">{''.join(f'<span>{item}</span>' for item in history_meta) or '<span>None</span>'}</div></td>"
+                "</tr>"
+            )
+        return "".join(body)
+
+    latest_rows = rows[:initial_limit]
+    remaining_rows = rows[initial_limit:]
+    primary_table = (
+        '<div class="history-shell">'
+        '<div class="history-scroll">'
+        '<table class="history-table">'
+        '<thead><tr><th>Draft</th><th>Timing</th><th>Linking</th><th>Preview</th><th>Notes</th></tr></thead>'
+        f"<tbody>{render_rows(latest_rows)}</tbody>"
+        "</table>"
+        "</div>"
+        "</div>"
+    )
+    if not remaining_rows:
+        return primary_table
+
+    remaining_table = (
+        '<div class="history-shell" style="margin-top:12px;">'
+        '<div class="history-scroll">'
+        '<table class="history-table">'
+        '<thead><tr><th>Draft</th><th>Timing</th><th>Linking</th><th>Preview</th><th>Notes</th></tr></thead>'
+        f"<tbody>{render_rows(remaining_rows)}</tbody>"
+        "</table>"
+        "</div>"
+        "</div>"
+    )
+    return (
+        f"{primary_table}"
+        '<details class="dev-details" style="margin-top:12px;">'
+        '<summary>'
+        '<span class="dev-summary-copy">'
+        f'<span class="dev-summary-title">Read More History</span>'
+        f'<span class="dev-summary-subtitle">Show {len(remaining_rows)} older draft{"s" if len(remaining_rows) != 1 else ""} beyond the latest {initial_limit}.</span>'
+        '</span>'
+        '<span class="dev-chevron" aria-hidden="true">&#9662;</span>'
+        '</summary>'
+        '<div class="dev-details-body">'
+        f"{remaining_table}"
+        '</div>'
+        '</details>'
     )
 
 
