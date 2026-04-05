@@ -86,6 +86,7 @@ def score_breakdown(
             min((weighted_engagement / max(views, 1)) * 800.0, 18.0) * engagement_gate if views else 0.0
         )
         replyability = _replyability_bonus(post)
+        early_breakout_bonus = _home_early_breakout_bonus(post, worker)
         source_bonus = source.source_weight * 18.0
         niche_bonus = focus["niche_fit"] * 32.0 + focus["topic_relevance"] * 10.0 + focus["creator_fit"] * 7.0
         score = (
@@ -100,6 +101,7 @@ def score_breakdown(
             + social_bonus
             + author_bonus
             + replyability
+            + early_breakout_bonus
             + niche_bonus
             + feed_bonus
             + low_signal_penalty
@@ -116,6 +118,7 @@ def score_breakdown(
                 "velocity": velocity,
                 "engagement_rate": engagement_rate,
                 "replyability": replyability,
+                "early_breakout_bonus": early_breakout_bonus,
                 "feed_bonus": feed_bonus,
             },
         )
@@ -237,6 +240,19 @@ def _replyability_bonus(post: ScrapedPost) -> float:
     if bool(post.raw.get("is_reply")):
         bonus -= 2.0
     return max(min(bonus, 12.0), -4.0)
+
+
+def _home_early_breakout_bonus(post: ScrapedPost, worker: WorkerSettings) -> float:
+    if post.source_key != "home_timeline":
+        return 0.0
+    age = age_minutes(post.posted_at)
+    views = int((post.metrics or {}).get("view_count", 0) or 0)
+    if views < worker.homepage_min_views_required:
+        return 0.0
+    if age > worker.homepage_min_views_age_minutes:
+        return 0.0
+    speed_ratio = max(0.0, 1.0 - (age / max(worker.homepage_min_views_age_minutes, 1)))
+    return 10.0 + speed_ratio * 8.0
 
 
 def _focus_scores(
@@ -390,6 +406,8 @@ def _score_tags(
         tags.append("engagement already visible")
     if extra.get("replyability", 0.0) >= 6:
         tags.append("clear reply angle")
+    if extra.get("early_breakout_bonus", 0.0) >= 10:
+        tags.append("hit 10k very fast")
     if extra.get("length", 0.0):
         tags.append("enough context")
     if extra.get("feed_bonus", 0.0) >= 5:

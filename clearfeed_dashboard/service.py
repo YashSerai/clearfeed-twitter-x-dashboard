@@ -734,11 +734,7 @@ class XAgentService:
                 return False
             return views >= int(source.min_view_count)
         if source.type == "list":
-            if age < self.config.worker.list_min_views_age_minutes:
-                return True
             return views >= self.config.worker.list_min_views_required
-        if age < self.config.worker.homepage_min_views_age_minutes:
-            return True
         return views >= self.config.worker.homepage_min_views_required
 
     def _build_llm_pool(self, ranked: list[dict[str, Any]]) -> list[dict[str, Any]]:

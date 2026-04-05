@@ -21,7 +21,6 @@ worker:
   homepage_max_alerts_per_cycle: 4
   homepage_max_opportunistic_alerts_per_cycle: 1
   list_min_views_required: 1000
-  list_min_views_age_minutes: 10
   homepage_min_views_required: 10000
   homepage_min_views_age_minutes: 10
   author_signal_lookback_hours: 72
