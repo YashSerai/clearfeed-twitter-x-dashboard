@@ -16,6 +16,8 @@ class SourceConfig:
     url: str | None = None
     use_for_original_posts: bool = False
     max_age_minutes: int | None = None
+    min_view_count: int | None = None
+    min_view_age_minutes: int | None = None
 
 
 @dataclass(slots=True)

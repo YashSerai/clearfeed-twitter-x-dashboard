@@ -26,6 +26,18 @@ sources:
     source_weight: 0.85
     preferred_action: quote_reply
     use_for_original_posts: true
+  - key: high_velocity
+    env_var: LIST_HIGH_VELOCITY_URL
+    weight_env_var: LIST_HIGH_VELOCITY_WEIGHT
+    label: High Velocity
+    type: list
+    cadence_minutes: 10
+    source_weight: 0.95
+    preferred_action: reply
+    use_for_original_posts: false
+    max_age_minutes: 10
+    min_view_count: 5000
+    min_view_age_minutes: 0
   - key: home_timeline
     enabled_env_var: HOME_TIMELINE_ENABLED
     weight_env_var: HOME_TIMELINE_WEIGHT

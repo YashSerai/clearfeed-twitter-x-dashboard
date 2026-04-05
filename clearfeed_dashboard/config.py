@@ -385,6 +385,8 @@ def load_config(root: str | Path | None = None) -> AppConfig:
                 url=url,
                 use_for_original_posts=bool(item.get("use_for_original_posts", False)),
                 max_age_minutes=int(item["max_age_minutes"]) if item.get("max_age_minutes") else None,
+                min_view_count=int(item["min_view_count"]) if item.get("min_view_count") else None,
+                min_view_age_minutes=int(item["min_view_age_minutes"]) if item.get("min_view_age_minutes") else None,
             )
         )
 

@@ -726,6 +726,13 @@ class XAgentService:
             return True
         age = age_minutes(post.posted_at)
         views = int((post.metrics or {}).get("view_count", 0) or 0)
+        if getattr(source, "min_view_count", None) is not None:
+            threshold_age = float(getattr(source, "min_view_age_minutes", None) or 0)
+            if age < threshold_age:
+                return True
+            if age > self._max_age_minutes_for_source(source):
+                return False
+            return views >= int(source.min_view_count)
         if source.type == "list":
             if age < self.config.worker.list_min_views_age_minutes:
                 return True

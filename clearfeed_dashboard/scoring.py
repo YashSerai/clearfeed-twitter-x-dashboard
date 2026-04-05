@@ -253,7 +253,8 @@ def _focus_scores(
     secondary_hits = _keyword_hits(text, worker.secondary_focus_keywords)
     deprioritize_hits = _keyword_hits(text, worker.deprioritize_keywords)
     tech_link_bonus = 0.18 if _looks_like_tech_link(post.linked_url) else 0.0
-    source_bias = 0.15 if source.type != "home" else 0.0
+    is_high_velocity = source.key == "high_velocity"
+    source_bias = 0.4 if is_high_velocity else 0.15 if source.type != "home" else 0.0
     topic_relevance = min(
         primary_hits * 0.2
         + secondary_hits * 0.09
@@ -273,6 +274,8 @@ def _focus_scores(
     off_topic_penalty = 0.0
     if deprioritize_hits:
         off_topic_penalty = deprioritize_hits * (10.0 if topic_relevance < 0.45 else 4.0)
+    if is_high_velocity:
+        off_topic_penalty *= 0.2
     if source.type == "home" and topic_relevance < 0.14 and creator_fit < 0.25:
         off_topic_penalty += 10.0
     return {
