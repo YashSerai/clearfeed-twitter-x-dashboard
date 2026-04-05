@@ -534,6 +534,7 @@ class XAgentService:
                     conn.execute("DELETE FROM approval_events")
                     conn.execute("DELETE FROM run_logs")
                     conn.execute("DELETE FROM telegram_state")
+                    conn.execute("DELETE FROM runtime_state")
                     conn.execute("DELETE FROM voice_learning_events")
                     conn.execute("DELETE FROM voice_review_proposals")
                     conn.execute("DELETE FROM archive_voice_summaries")
@@ -1088,12 +1089,6 @@ class XAgentService:
     ) -> list[int]:
         self._ensure_drafting_enabled()
         source_keys = [source.key for source in self.config.sources if source.use_for_original_posts]
-        existing_today = db.count_original_drafts_today(conn)
-        remaining = max(self.config.worker.max_original_drafts_per_day - existing_today, 0)
-        if remaining <= 0:
-            raise RuntimeError(
-                f"Daily original-draft cap reached ({self.config.worker.max_original_drafts_per_day} per day)."
-            )
         normalized_topic = topic.strip()
         normalized_selected_topics = self._normalize_original_topic_selections(selected_topics)
         if normalized_selected_topics:
@@ -1114,10 +1109,6 @@ class XAgentService:
         else:
             raise RuntimeError(
                 f"Select up to {self.config.worker.original_topics_per_batch} timely topics or write a custom draft brief first."
-            )
-        if len(requested_topics) > remaining:
-            raise RuntimeError(
-                f"You can only create {remaining} more original draft(s) today before hitting the daily cap."
             )
         signal_rows = db.fetch_recent_posts_for_originals(
             conn,
@@ -1178,6 +1169,8 @@ class XAgentService:
                     reply_markup=self._draft_keyboard(draft_id, has_image_prompt=bool(draft.image_prompt)),
                 )
                 db.set_draft_message_id(conn, draft_id, int(message["message_id"]))
+        if draft_ids:
+            db.set_runtime_value(conn, "dashboard.latest_original_batch_ids", json.dumps(draft_ids))
         return draft_ids
 
     def _suggest_original_post_topics(

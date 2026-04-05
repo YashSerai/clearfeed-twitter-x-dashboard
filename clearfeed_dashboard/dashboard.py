@@ -398,6 +398,31 @@ def _optional_int(value: Any) -> int | None:
 
 
 def _latest_original_drafts(database_path: Path) -> list[sqlite3.Row]:
+    latest_batch_rows = _query_rows(
+        database_path,
+        "select value from runtime_state where key = ?",
+        ("dashboard.latest_original_batch_ids",),
+    )
+    if latest_batch_rows:
+        try:
+            latest_batch_ids = [int(item) for item in json.loads(str(latest_batch_rows[0]["value"] or "[]"))]
+        except Exception:
+            latest_batch_ids = []
+        if latest_batch_ids:
+            placeholders = ",".join("?" for _ in latest_batch_ids)
+            rows = _query_rows(
+                database_path,
+                f"""
+                select d.id, d.draft_type, d.status, d.draft_text, d.updated_at, d.posted_tweet_id, d.image_prompt, d.image_path, d.generation_notes
+                from drafts d
+                where d.candidate_id is null
+                  and d.id in ({placeholders})
+                order by d.id desc
+                """,
+                tuple(latest_batch_ids),
+            )
+            if rows:
+                return rows
     return _query_rows(
         database_path,
         """
@@ -1478,7 +1503,6 @@ def _render_mini_app() -> str:
         originalsView.innerHTML = '';
         const batchCount = Number(payload.app.original_topics_per_batch || 0);
         const suggestionCount = Number(payload.app.original_topic_suggestion_limit || payload.app.original_post_options || 0);
-        const dailyCap = Number(payload.app.max_original_drafts_per_day || 0);
         const originalsModel = String(payload.app.originals_model || '');
         const researchNote = payload.app.web_research_enabled ? 'with live web research' : 'from your local signal pool';
         const topicSuggestions = Array.isArray(payload.topic_suggestions) ? payload.topic_suggestions : [];
@@ -1493,7 +1517,7 @@ def _render_mini_app() -> str:
         composer.innerHTML = `
           <div class="section-label">Original Posts</div>
           <h2 style="margin:0 0 8px;">Generate standalone ideas</h2>
-          <div class="note">Find ${suggestionCount || 1} timely topics, then select up to ${batchCount || 1}. Clearfeed will generate 1 longer standalone draft per selected topic ${researchNote}. Daily cap: ${dailyCap || batchCount || 1}. ${originalsModel ? `Model: ${escapeHtml(originalsModel)}.` : ''}</div>
+          <div class="note">Find ${suggestionCount || 1} timely topics, then select up to ${batchCount || 1}. Clearfeed will generate 1 longer standalone draft per selected topic ${researchNote}. ${originalsModel ? `Model: ${escapeHtml(originalsModel)}.` : ''}</div>
           <div style="margin-top:12px;">
             <input type="text" id="original-topic" placeholder="Optional global direction to apply across selected topics, or type one custom topic if you are not selecting from the list.">
             <div class="note" id="original-selection-note" style="margin-top:10px;">${escapeHtml(miniOriginalSelectionNote(batchCount || 1, false))}</div>
