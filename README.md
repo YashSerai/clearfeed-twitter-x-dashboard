@@ -38,6 +38,27 @@ The point is simple: tighter inputs, better drafting, and a workflow where the h
 ## Dashboard Preview
 ![Clearfeed Dashboard](docs/assets/dashboard-screenshot.png)
 
+## Feature Demos
+### Full Dashboard Tour
+One scroll through the full local workflow, from the overview and reply queue to original drafts and Adaptive Voice.
+
+![Clearfeed Dashboard Tour](docs/assets/clearfeed-dashboard-tour.gif)
+
+### Generate Tweet
+Import a tweet link directly into the queue and generate a reply draft without posting anything to X.
+
+![Clearfeed Generate Tweet](docs/assets/clearfeed-generate-tweet.gif)
+
+### Original Prompt
+Write a custom original-post brief and generate a standalone draft from the dashboard.
+
+![Clearfeed Original Prompt](docs/assets/clearfeed-original-prompt.gif)
+
+### Adaptive Voice
+Review the Adaptive Voice section and the proposed `Voice.md` update before deciding whether to apply it.
+
+![Clearfeed Adaptive Voice](docs/assets/clearfeed-adaptive-voice.gif)
+
 ## What Clearfeed Helps With
 - Keeping up with your niche without sitting in the home feed for hours.
 - Finding posts that are actually worth replying to.
@@ -62,23 +83,6 @@ You follow AI builders, startup founders, and infra researchers across a few lis
 4. You draft a reply, quote reply, or original post in your own voice.
 5. You edit in the dashboard, copy the final draft to X, and mark it manual when you're done.
 6. The app saves those decisions locally and lets Adaptive Voice propose better `Voice.md` updates over time.
-
-## Workflow Demo
-Add a short workflow GIF at `docs/assets/clearfeed-workflow.gif`.
-
-Recommended sequence:
-1. open a candidate tweet
-2. click `Draft Reply`
-3. edit the draft in the dashboard
-4. copy the draft and mark it manual
-
-Keep it to roughly 5-10 seconds and avoid showing private data.
-
-When you add it, use:
-
-```md
-![Clearfeed Workflow](docs/assets/clearfeed-workflow.gif)
-```
 
 ## Who This Is For
 - Builders who actively post on X/Twitter.

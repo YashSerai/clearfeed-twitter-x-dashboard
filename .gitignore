@@ -3,6 +3,7 @@
 __pycache__/
 *.pyc
 logs/
+demo-output/
 data/browser/
 data/generated/
 data/runtime/
