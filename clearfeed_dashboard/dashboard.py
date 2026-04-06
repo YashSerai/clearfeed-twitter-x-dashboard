@@ -3605,7 +3605,6 @@ def _render_dashboard(
           <button class="bad" type="submit" data-busy-label="Resetting local state...">Clear History</button>
         </form>
       </section>
-      {_tweet_link_card(drafting_enabled, bool(setup_status.get("session", {}).get("ok")))}
         <section class="card span-12 queue-shell" id="reply-queue">
         <div class="queue-header">
             <div>
@@ -3620,6 +3619,7 @@ def _render_dashboard(
               <button type="button" class="ghost-button" data-restart-deck>Back to first</button>
             </div>
           </div>
+          {_tweet_link_card(drafting_enabled, bool(setup_status.get("session", {}).get("ok")))}
           <div class="queue-layout" data-queue-root data-queue-version="{queue_snapshot['version']}">
             <div class="queue-stage">
               {queue_snapshot['stage_html']}
@@ -5107,7 +5107,15 @@ def _tweet_link_card(drafting_enabled: bool, session_ready: bool) -> str:
     warning_html = f'<div class="inline-warning">{" ".join(warning_bits)}</div>' if warning_bits else ""
 
     return (
-        '<section class="card span-12">'
+        '<details class="dev-details" style="margin-bottom:16px;">'
+        '<summary>'
+        '<span class="dev-summary-copy">'
+        '<span class="dev-summary-title">Direct Reply</span>'
+        '<span class="dev-summary-subtitle">Paste one tweet link when the target is not already in the queue.</span>'
+        '</span>'
+        '<span class="dev-chevron" aria-hidden="true">&#9662;</span>'
+        '</summary>'
+        '<div class="dev-details-body">'
         '<div class="originals-workspace">'
         '<section class="originals-pane">'
         '<div class="section-label">Direct Reply</div>'
@@ -5133,7 +5141,8 @@ def _tweet_link_card(drafting_enabled: bool, session_ready: bool) -> str:
         '<div class="note">Useful for links from DMs, group chats, or tweets you found outside your tracked lists.</div>'
         '</section>'
         '</div>'
-        '</section>'
+        '</div>'
+        '</details>'
     )
 
 
