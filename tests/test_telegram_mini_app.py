@@ -21,6 +21,7 @@ from clearfeed_dashboard.dashboard import (
     _mini_original_topics_action,
     _render_mini_app,
 )
+from clearfeed_dashboard.scraper import normalize_tweet_url
 from clearfeed_dashboard.db import managed_connection
 from clearfeed_dashboard.service import XAgentService
 from clearfeed_dashboard.telegram_webapp import TelegramWebAppAuthError, validate_init_data
@@ -93,6 +94,23 @@ class _FakeDrafting:
             }
             for index in range(limit)
         ]
+
+
+class _FakeTweetLinkScraper:
+    def scrape_tweet_url(self, url: str) -> ScrapedPost:
+        return ScrapedPost(
+            tweet_id="tweet-link-1",
+            source_key="manual_link",
+            source_url=url,
+            author_handle="builder",
+            author_name="Builder",
+            text="Threading concrete tradeoffs beats vague takes.",
+            posted_at=datetime.now(timezone.utc),
+            url=url,
+            linked_url="https://example.com/post",
+            metrics={"view_count": 44, "like_count": 11, "reply_count": 4, "repost_count": 1},
+            raw={"media_urls": []},
+        )
 
 
 class TelegramMiniAppTests(unittest.TestCase):
@@ -242,6 +260,12 @@ class TelegramMiniAppTests(unittest.TestCase):
         with self.assertRaises(TelegramWebAppAuthError):
             validate_init_data(init_data, "123:abc", now=1_700_100_000)
 
+    def test_normalize_tweet_url_accepts_x_and_twitter_domains(self) -> None:
+        self.assertEqual(
+            normalize_tweet_url("twitter.com/builder/status/1234567890?t=abc"),
+            "https://x.com/builder/status/1234567890",
+        )
+
     def test_mini_app_html_preserves_unsaved_editor_state_during_rerenders(self) -> None:
         page = _render_mini_app()
         self.assertIn("localCandidateBriefs", page)
@@ -249,6 +273,49 @@ class TelegramMiniAppTests(unittest.TestCase):
         self.assertIn("snapshotActiveEditor", page)
         self.assertIn("restoreActiveEditor", page)
         self.assertIn("pruneLocalEditorState", page)
+
+    def test_tweet_url_action_imports_manual_candidate_and_creates_draft(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self._write_repo(root)
+            service = self._build_service(root)
+            service.scraper = _FakeTweetLinkScraper()
+            try:
+                result = service.tweet_url_action(
+                    "twitter.com/builder/status/1234567890?ref_src=twsrc",
+                    "draft_reply",
+                    notify_telegram=False,
+                    draft_guidance="Lead with the tradeoff, then make it practical.",
+                )
+                self.assertIn("Drafted reply", result["message"])
+
+                with managed_connection(service.config.database_path) as conn:
+                    candidate = conn.execute(
+                        """
+                        SELECT c.status, c.source_key, c.recommended_action, s.url, s.author_handle
+                        FROM candidates c
+                        JOIN scraped_posts s ON s.tweet_id = c.tweet_id
+                        ORDER BY c.id DESC
+                        LIMIT 1
+                        """
+                    ).fetchone()
+                    self.assertEqual(str(candidate["status"]), "drafted")
+                    self.assertEqual(str(candidate["source_key"]), "manual_link")
+                    self.assertEqual(str(candidate["recommended_action"]), "reply")
+                    self.assertEqual(str(candidate["url"]), "https://x.com/builder/status/1234567890")
+                    self.assertEqual(str(candidate["author_handle"]), "builder")
+
+                    draft = conn.execute(
+                        "SELECT draft_type, generation_notes, draft_text FROM drafts ORDER BY id DESC LIMIT 1"
+                    ).fetchone()
+                    self.assertEqual(str(draft["draft_type"]), "reply")
+                    self.assertEqual(
+                        str(draft["generation_notes"]),
+                        "Lead with the tradeoff, then make it practical.",
+                    )
+                    self.assertIn("brief=Lead with the tradeoff, then make it practical.", str(draft["draft_text"]))
+            finally:
+                self._close_service_logger(service)
 
     def test_mini_app_actions_share_dashboard_service_logic(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

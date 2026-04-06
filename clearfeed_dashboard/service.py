@@ -23,9 +23,10 @@ from .config import AppConfig, load_config
 from .db import managed_connection
 from .llm import DraftingEngine
 from .scoring import age_minutes, human_age, metrics_summary, score_breakdown
-from .scraper import XScraper
+from .scraper import XScraper, normalize_tweet_url
 from .style import load_style_packet
 from .telegram_api import DisabledTelegramAPI, TelegramAPI, callback_button, inline_keyboard, web_app_button
+from .types import SourceConfig
 
 
 class XAgentService:
@@ -96,6 +97,49 @@ class XAgentService:
                 db.record_event(conn, "candidate", candidate_id, "ignore", {"via": "dashboard"})
                 return {"message": f"Candidate #{candidate_id} ignored."}
         raise ValueError(f"Unknown candidate action: {action}")
+
+    def tweet_url_action(
+        self,
+        tweet_url: str,
+        action: str,
+        notify_telegram: bool = True,
+        draft_guidance: str | None = None,
+        source_channel: str = "dashboard",
+    ) -> dict[str, Any]:
+        normalized_action = str(action or "").strip()
+        if normalized_action not in {"draft_reply", "draft_quote", "queue"}:
+            raise ValueError(f"Unknown tweet link action: {action}")
+        draft_type = "reply" if normalized_action == "draft_reply" else "quote_reply" if normalized_action == "draft_quote" else None
+        if draft_type:
+            self._ensure_drafting_enabled()
+        with managed_connection(self.config.database_path) as conn:
+            db.bootstrap(conn)
+            candidate_id = self._import_candidate_from_tweet_url(
+                conn,
+                tweet_url,
+                recommended_action="quote_reply" if draft_type == "quote_reply" else "reply",
+                source_channel=source_channel,
+            )
+            if draft_type:
+                draft_id = self._generate_candidate_draft(
+                    conn,
+                    candidate_id,
+                    draft_type,
+                    notify_telegram=notify_telegram,
+                    user_guidance=draft_guidance,
+                )
+                label = "quote reply" if draft_type == "quote_reply" else "reply"
+                return {
+                    "message": f"Drafted {label} #{draft_id}.",
+                    "candidate_id": candidate_id,
+                    "draft_id": draft_id,
+                    "anchor": f"draft-{draft_id}",
+                }
+            return {
+                "message": f"Added tweet as candidate #{candidate_id}.",
+                "candidate_id": candidate_id,
+                "anchor": f"candidate-{candidate_id}",
+            }
 
     def draft_action(
         self,
@@ -1238,6 +1282,80 @@ class XAgentService:
             return
         raise RuntimeError(
             "Drafting is not configured. Run scripts/setup.ps1 and fill the selected AI provider settings in .env."
+        )
+
+    def _import_candidate_from_tweet_url(
+        self,
+        conn: sqlite3.Connection,
+        tweet_url: str,
+        *,
+        recommended_action: str,
+        source_channel: str,
+    ) -> int:
+        normalized_url = normalize_tweet_url(tweet_url)
+        scraped_post = self.scraper.scrape_tweet_url(normalized_url)
+        existing_candidate = db.get_candidate_by_tweet_id(conn, scraped_post.tweet_id)
+        existing_post = db.get_scraped_post(conn, scraped_post.tweet_id)
+
+        effective_source_key = str(
+            (existing_candidate["source_key"] if existing_candidate else None)
+            or (existing_post["source_key"] if existing_post else None)
+            or "manual_link"
+        )
+        effective_source_url = str(
+            (existing_post["source_url"] if existing_post and str(existing_post["source_url"] or "").strip() else None)
+            or normalized_url
+        )
+
+        scraped_post.source_key = effective_source_key
+        scraped_post.source_url = effective_source_url
+        db.upsert_scraped_post(conn, scraped_post)
+
+        source_config = self._source_config_for_candidate(effective_source_key, effective_source_url)
+        score_details = score_breakdown(scraped_post, source_config, self.config.worker)
+        heuristic_score = float(score_details.get("score") or 0.0)
+        candidate_id = db.upsert_candidate(
+            conn,
+            tweet_id=scraped_post.tweet_id,
+            source_key=effective_source_key,
+            heuristic_score=heuristic_score,
+            llm_score=0.0,
+            total_score=heuristic_score + 250.0,
+            opportunity_bucket="manual",
+            recommended_action=recommended_action,
+            why="Manually imported from a pasted tweet link. Prioritized because you explicitly asked Clearfeed to draft against it.",
+            score_payload={"manual_link": True, **score_details},
+        )
+        db.set_candidate_status(conn, candidate_id, "new")
+        db.record_event(
+            conn,
+            "candidate",
+            candidate_id,
+            "manual_import",
+            {
+                "tweet_id": scraped_post.tweet_id,
+                "tweet_url": normalized_url,
+                "recommended_action": recommended_action,
+                "via": source_channel,
+            },
+        )
+        return candidate_id
+
+    def _source_config_for_candidate(self, source_key: str, source_url: str) -> SourceConfig:
+        for source in self.config.sources:
+            if source.key == source_key:
+                return source
+        highest_weight = max((source.source_weight for source in self.config.sources), default=1.0)
+        return SourceConfig(
+            key=source_key,
+            label="Manual Link",
+            type="list",
+            cadence_minutes=0,
+            source_weight=highest_weight,
+            preferred_action="reply",
+            url=source_url,
+            use_for_original_posts=False,
+            max_age_minutes=max(self.config.worker.max_reply_age_minutes, 60 * 24 * 14),
         )
 
     def _build_original_generation_note(

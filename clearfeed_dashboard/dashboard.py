@@ -226,6 +226,23 @@ def run_dashboard(host: str = "127.0.0.1", port: int = 8787) -> None:
                         params=_redirect_params(result),
                     )
                     return
+                if parsed.path == "/tweet-link":
+                    tweet_url = form.get("tweet_url", [""])[0]
+                    action = form["action"][0]
+                    draft_guidance = form.get("draft_guidance", [""])[0]
+                    result = service.tweet_url_action(
+                        tweet_url,
+                        action,
+                        notify_telegram=False,
+                        draft_guidance=draft_guidance,
+                        source_channel="dashboard",
+                    )
+                    self._redirect(
+                        result["message"],
+                        anchor=result.get("anchor"),
+                        params=_redirect_params(result),
+                    )
+                    return
                 if parsed.path == "/draft":
                     draft_id = int(form["draft_id"][0])
                     action = form["action"][0]
@@ -3588,6 +3605,7 @@ def _render_dashboard(
           <button class="bad" type="submit" data-busy-label="Resetting local state...">Clear History</button>
         </form>
       </section>
+      {_tweet_link_card(drafting_enabled, bool(setup_status.get("session", {}).get("ok")))}
         <section class="card span-12 queue-shell" id="reply-queue">
         <div class="queue-header">
             <div>
@@ -5070,6 +5088,52 @@ def _setup_status_row(label: str, ok: bool, detail: str) -> str:
         "</div>"
         f"<p>{_escape(detail)}</p>"
         "</div>"
+    )
+
+
+def _tweet_link_card(drafting_enabled: bool, session_ready: bool) -> str:
+    disabled_reason = ""
+    if not session_ready:
+        disabled_reason = "Capture an X session before importing a tweet link."
+    elif not drafting_enabled:
+        disabled_reason = "Configure the selected AI provider in .env to enable drafting."
+    disabled_attr = f' disabled title="{_escape(disabled_reason)}"' if disabled_reason else ""
+
+    warning_bits: list[str] = []
+    if not session_ready:
+        warning_bits.append("Capture an X session first so Clearfeed can open the status page on X.")
+    if not drafting_enabled:
+        warning_bits.append("Configure the selected AI provider in .env before generating drafts here.")
+    warning_html = f'<div class="inline-warning">{" ".join(warning_bits)}</div>' if warning_bits else ""
+
+    return (
+        '<section class="card span-12">'
+        '<div class="originals-workspace">'
+        '<section class="originals-pane">'
+        '<div class="section-label">Direct Reply</div>'
+        '<h3>Paste a tweet link and draft against it</h3>'
+        '<p class="section-note">Use this when the tweet you want is not already in the reply queue. Clearfeed will load the status from X, store it locally, and attach the generated draft to the normal review flow.</p>'
+        '<form method="post" action="/tweet-link" class="candidate-form">'
+        '<label class="candidate-guidance-label" for="tweet-link-url">Tweet Link</label>'
+        '<input id="tweet-link-url" type="text" name="tweet_url" placeholder="https://x.com/handle/status/1234567890">'
+        '<label class="candidate-guidance-label" for="tweet-link-guidance">Draft Brief</label>'
+        '<textarea id="tweet-link-guidance" name="draft_guidance" class="candidate-guidance" placeholder="Optional: say the angle, objection, or structure you want the draft to lean into."></textarea>'
+        '<div class="candidate-guidance-help">Supports x.com and twitter.com status links. After generation, the tweet stays in the queue so you can keep editing the draft in context.</div>'
+        '<div class="candidate-actions">'
+        f'<button class="ok" type="submit" name="action" value="draft_reply" data-busy-label="Importing tweet and drafting reply..."{disabled_attr}>Draft Reply</button>'
+        f'<button type="submit" name="action" value="draft_quote" data-busy-label="Importing tweet and drafting quote reply..."{disabled_attr}>Draft Quote</button>'
+        '</div>'
+        f"{warning_html}"
+        '</form>'
+        '</section>'
+        '<section class="originals-pane">'
+        '<div class="section-label">How It Works</div>'
+        '<h3>Import once, then reuse the same queue workflow</h3>'
+        '<p class="section-note">Clearfeed opens the status with your saved X session, captures the tweet text and metadata, adds it to the local candidate queue, and runs the same reply or quote-reply generator used for list and home-timeline discoveries.</p>'
+        '<div class="note">Useful for links from DMs, group chats, or tweets you found outside your tracked lists.</div>'
+        '</section>'
+        '</div>'
+        '</section>'
     )
 
 

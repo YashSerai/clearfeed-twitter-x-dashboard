@@ -330,6 +330,25 @@ def get_candidate(conn: sqlite3.Connection, candidate_id: int) -> sqlite3.Row | 
     ).fetchone()
 
 
+def get_candidate_by_tweet_id(conn: sqlite3.Connection, tweet_id: str) -> sqlite3.Row | None:
+    return conn.execute(
+        """
+        SELECT c.*, s.author_handle, s.author_name, s.text, s.posted_at, s.url, s.linked_url, s.raw_metrics, s.raw_json
+        FROM candidates c
+        JOIN scraped_posts s ON s.tweet_id = c.tweet_id
+        WHERE c.tweet_id = ?
+        """,
+        (tweet_id,),
+    ).fetchone()
+
+
+def get_scraped_post(conn: sqlite3.Connection, tweet_id: str) -> sqlite3.Row | None:
+    return conn.execute(
+        "SELECT * FROM scraped_posts WHERE tweet_id = ?",
+        (tweet_id,),
+    ).fetchone()
+
+
 def get_top_unalerted_candidates(conn: sqlite3.Connection, limit: int) -> list[sqlite3.Row]:
     return conn.execute(
         """
