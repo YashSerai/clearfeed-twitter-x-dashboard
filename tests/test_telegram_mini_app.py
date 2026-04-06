@@ -19,6 +19,7 @@ from clearfeed_dashboard.dashboard import (
     _mini_draft_action,
     _mini_original_action,
     _mini_original_topics_action,
+    _render_mini_app,
 )
 from clearfeed_dashboard.db import managed_connection
 from clearfeed_dashboard.service import XAgentService
@@ -240,6 +241,14 @@ class TelegramMiniAppTests(unittest.TestCase):
         init_data = self._signed_init_data("123:abc", auth_date=1_700_000_000)
         with self.assertRaises(TelegramWebAppAuthError):
             validate_init_data(init_data, "123:abc", now=1_700_100_000)
+
+    def test_mini_app_html_preserves_unsaved_editor_state_during_rerenders(self) -> None:
+        page = _render_mini_app()
+        self.assertIn("localCandidateBriefs", page)
+        self.assertIn("localDraftTexts", page)
+        self.assertIn("snapshotActiveEditor", page)
+        self.assertIn("restoreActiveEditor", page)
+        self.assertIn("pruneLocalEditorState", page)
 
     def test_mini_app_actions_share_dashboard_service_logic(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

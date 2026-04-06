@@ -1043,6 +1043,9 @@ def _render_mini_app() -> str:
         pendingCandidateDrafts: {},
         pendingCandidateActions: {},
         pendingDraftActions: {},
+        localCandidateBriefs: {},
+        localDraftTexts: {},
+        localOriginalTopic: '',
       };
 
       const initHeaders = () => {
@@ -1134,12 +1137,100 @@ def _render_mini_app() -> str:
         .replaceAll('<', '&lt;')
         .replaceAll('>', '&gt;')
         .replaceAll('\"', '&quot;');
+      const hasOwn = (value, key) => Object.prototype.hasOwnProperty.call(value, String(key));
       const isCandidateDraftAction = (action) => action === 'draft_reply' || action === 'draft_quote';
       const isCandidateAsyncAction = (action) => ['watch', 'ignore'].includes(action);
       const isDraftAsyncAction = (action) => ['save_text', 'manual', 'reject', 'image'].includes(action);
       const getPendingCandidateDraft = (candidateId) => state.pendingCandidateDrafts[String(candidateId)] || null;
       const getPendingCandidateAction = (candidateId) => state.pendingCandidateActions[String(candidateId)] || null;
       const getPendingDraftAction = (draftId) => state.pendingDraftActions[String(draftId)] || null;
+      const getLocalCandidateBrief = (candidateId, fallback = '') => (
+        hasOwn(state.localCandidateBriefs, candidateId)
+          ? state.localCandidateBriefs[String(candidateId)]
+          : fallback
+      );
+      const getLocalDraftText = (draftId, fallback = '') => (
+        hasOwn(state.localDraftTexts, draftId)
+          ? state.localDraftTexts[String(draftId)]
+          : fallback
+      );
+      const pruneLocalEditorState = (payload) => {
+        const visibleCandidateIds = new Set((payload.queue || []).map((candidate) => String(candidate.id)));
+        Object.keys(state.localCandidateBriefs).forEach((candidateId) => {
+          if (!visibleCandidateIds.has(candidateId)) {
+            delete state.localCandidateBriefs[candidateId];
+          }
+        });
+        const visibleDraftIds = new Set((payload.original_drafts || []).map((draft) => String(draft.id)));
+        (payload.queue || []).forEach((candidate) => {
+          if (candidate && candidate.draft && candidate.draft.id !== undefined && candidate.draft.id !== null) {
+            visibleDraftIds.add(String(candidate.draft.id));
+          }
+        });
+        Object.keys(state.localDraftTexts).forEach((draftId) => {
+          if (!visibleDraftIds.has(draftId)) {
+            delete state.localDraftTexts[draftId];
+          }
+        });
+      };
+      const snapshotActiveEditor = () => {
+        const active = document.activeElement;
+        if (active instanceof HTMLTextAreaElement) {
+          const candidateBriefId = active.getAttribute('data-candidate-brief');
+          if (candidateBriefId) {
+            return {
+              type: 'candidate-brief',
+              id: candidateBriefId,
+              start: active.selectionStart,
+              end: active.selectionEnd,
+            };
+          }
+          const draftTextId = active.getAttribute('data-draft-text');
+          if (draftTextId) {
+            return {
+              type: 'draft-text',
+              id: draftTextId,
+              start: active.selectionStart,
+              end: active.selectionEnd,
+            };
+          }
+        }
+        if (active instanceof HTMLInputElement && active.id === 'original-topic') {
+          return {
+            type: 'original-topic',
+            start: active.selectionStart,
+            end: active.selectionEnd,
+          };
+        }
+        return null;
+      };
+      const restoreActiveEditor = (snapshot) => {
+        if (!snapshot) {
+          return;
+        }
+        let field = null;
+        if (snapshot.type === 'candidate-brief') {
+          field = document.querySelector(`[data-candidate-brief="${snapshot.id}"]`);
+        } else if (snapshot.type === 'draft-text') {
+          field = document.querySelector(`[data-draft-text="${snapshot.id}"]`);
+        } else if (snapshot.type === 'original-topic') {
+          field = document.getElementById('original-topic');
+        }
+        if (!(field instanceof HTMLTextAreaElement || field instanceof HTMLInputElement)) {
+          return;
+        }
+        try {
+          field.focus({ preventScroll: true });
+        } catch (_error) {
+          field.focus();
+        }
+        try {
+          const start = typeof snapshot.start === 'number' ? snapshot.start : field.value.length;
+          const end = typeof snapshot.end === 'number' ? snapshot.end : start;
+          field.setSelectionRange(start, end);
+        } catch (_error) {
+        }
+      };
       const buildEmptyDraftCardHtml = () => `
         <section class="subcard" data-empty-draft-card="true">
           <div class="draft-head">
@@ -1389,6 +1480,7 @@ def _render_mini_app() -> str:
 
       const renderDraftCard = (draft, { parent, title, generationNotes = '' }) => {
         const pendingDraftAction = getPendingDraftAction(draft.id);
+        const draftText = getLocalDraftText(draft.id, draft.draft_text || '');
         const card = document.createElement('section');
         card.className = `subcard${pendingDraftAction ? ' pending' : ''}`;
         card.id = `draft-${draft.id}`;
@@ -1406,9 +1498,9 @@ def _render_mini_app() -> str:
           ${generationNotes ? `<div class="note" style="margin-top:12px;"><strong>Brief:</strong><br>${escapeHtml(generationNotes)}</div>` : ''}
           <div class="draft-box">
             <div class="section-label">Draft Text</div>
-            <textarea data-draft-text="${draft.id}" ${draft.is_editable ? '' : 'readonly'}>${escapeHtml(draft.draft_text)}</textarea>
+            <textarea data-draft-text="${draft.id}" ${draft.is_editable ? '' : 'readonly'}>${escapeHtml(draftText)}</textarea>
             <div class="char-row">
-              <span>${draft.char_count}${draft.draft_text_limit ? ` / ${draft.draft_text_limit}` : ' chars'}</span>
+              <span>${draftText.length}${draft.draft_text_limit ? ` / ${draft.draft_text_limit}` : ' chars'}</span>
               <span>${draft.has_image_prompt ? 'Image prompt available' : 'Text only'}</span>
             </div>
             ${draft.has_image_path ? `<div class="note" style="margin-top:8px;">Generated image saved at ${escapeHtml(draft.image_path)}</div>` : ''}
@@ -1436,6 +1528,7 @@ def _render_mini_app() -> str:
         payload.queue.forEach((candidate) => {
           const pendingDraft = getPendingCandidateDraft(candidate.id);
           const pendingAction = getPendingCandidateAction(candidate.id);
+          const candidateBrief = getLocalCandidateBrief(candidate.id, candidate.draft_generation_notes || '');
           const card = document.createElement('article');
           card.className = `card${pendingAction ? ' is-pending' : ''}`;
           card.id = `candidate-${candidate.id}`;
@@ -1466,7 +1559,7 @@ def _render_mini_app() -> str:
             </div>
             <div class="draft-box">
               <div class="section-label">Draft Brief</div>
-              <textarea data-candidate-brief="${candidate.id}" placeholder="State the angle, objection, tone, or structure you want the next draft to follow.">${escapeHtml(candidate.draft_generation_notes || '')}</textarea>
+              <textarea data-candidate-brief="${candidate.id}" placeholder="State the angle, objection, tone, or structure you want the next draft to follow.">${escapeHtml(candidateBrief)}</textarea>
               <div class="actions">
                 <button type="button" class="ok" data-candidate-action="draft_reply" data-candidate-id="${candidate.id}" data-can-generate-draft="${candidate.can_generate_draft ? 'true' : 'false'}" ${candidate.can_generate_draft && !pendingDraft && !pendingAction ? '' : 'disabled'}>Draft Reply</button>
                 <button type="button" data-candidate-action="draft_quote" data-candidate-id="${candidate.id}" data-can-generate-draft="${candidate.can_generate_draft ? 'true' : 'false'}" ${candidate.can_generate_draft && !pendingDraft && !pendingAction ? '' : 'disabled'}>Draft Quote</button>
@@ -1519,8 +1612,8 @@ def _render_mini_app() -> str:
           <h2 style="margin:0 0 8px;">Generate standalone ideas</h2>
           <div class="note">Find ${suggestionCount || 1} timely topics, then select up to ${batchCount || 1}. Clearfeed will generate 1 longer standalone draft per selected topic ${researchNote}. ${originalsModel ? `Model: ${escapeHtml(originalsModel)}.` : ''}</div>
           <div style="margin-top:12px;">
-            <input type="text" id="original-topic" placeholder="Optional global direction to apply across selected topics, or type one custom topic if you are not selecting from the list.">
-            <div class="note" id="original-selection-note" style="margin-top:10px;">${escapeHtml(miniOriginalSelectionNote(batchCount || 1, false))}</div>
+            <input type="text" id="original-topic" value="${escapeHtml(state.localOriginalTopic)}" placeholder="Optional global direction to apply across selected topics, or type one custom topic if you are not selecting from the list.">
+            <div class="note" id="original-selection-note" style="margin-top:10px;">${escapeHtml(miniOriginalSelectionNote(batchCount || 1, Boolean((state.localOriginalTopic || '').trim())))}</div>
             <div class="actions">
               <button type="button" class="ghost" id="find-original-topics" ${payload.app.drafting_enabled ? '' : 'disabled'}>Find Timely Topics</button>
               <button type="button" class="ok" id="generate-originals" ${payload.app.drafting_enabled ? '' : 'disabled'}>Generate Selected Drafts</button>
@@ -1598,6 +1691,7 @@ def _render_mini_app() -> str:
       };
 
       const render = (payload) => {
+        const activeEditor = snapshotActiveEditor();
         const nextPayload = {
           ...payload,
           topic_suggestions: Array.isArray(payload.topic_suggestions) && payload.topic_suggestions.length
@@ -1606,6 +1700,7 @@ def _render_mini_app() -> str:
               ? state.payload.topic_suggestions
               : [],
         };
+        pruneLocalEditorState(nextPayload);
         state.payload = nextPayload;
         renderWorkerMeta(nextPayload);
         updateTopStats(nextPayload);
@@ -1625,6 +1720,10 @@ def _render_mini_app() -> str:
         Object.keys(state.pendingDraftActions).forEach((draftId) => {
           syncPendingMiniDraftAction(draftId);
         });
+        if (activeEditor) {
+          restoreActiveEditor(activeEditor);
+          return;
+        }
         focusElementIfPresent();
       };
 
@@ -1681,6 +1780,25 @@ def _render_mini_app() -> str:
         }, 15000);
       };
 
+      document.addEventListener('input', (event) => {
+        const target = event.target;
+        if (target instanceof HTMLTextAreaElement) {
+          const candidateBriefId = target.getAttribute('data-candidate-brief');
+          if (candidateBriefId) {
+            state.localCandidateBriefs[String(candidateBriefId)] = target.value;
+            return;
+          }
+          const draftTextId = target.getAttribute('data-draft-text');
+          if (draftTextId) {
+            state.localDraftTexts[String(draftTextId)] = target.value;
+            return;
+          }
+        }
+        if (target instanceof HTMLInputElement && target.id === 'original-topic') {
+          state.localOriginalTopic = target.value;
+        }
+      });
+
       document.addEventListener('click', async (event) => {
         const target = event.target;
         if (!(target instanceof HTMLElement) || state.busy || !state.payload) {
@@ -1704,6 +1822,7 @@ def _render_mini_app() -> str:
               }),
             });
             state.selectedOriginalTopics = [];
+            state.localOriginalTopic = topic;
             render(payload);
             setMessage(payload.message || 'Original drafts created.');
           } catch (error) {
@@ -1722,6 +1841,7 @@ def _render_mini_app() -> str:
               body: JSON.stringify({ topic_hint: input ? input.value : '' }),
             });
             state.selectedOriginalTopics = [];
+            state.localOriginalTopic = input ? input.value : '';
             render(payload);
             setMessage(payload.message || 'Timely topics loaded.');
           } catch (error) {
@@ -1793,18 +1913,19 @@ def _render_mini_app() -> str:
             try {
               const payload = await request('/api/mini/candidate-action', {
                 method: 'POST',
-                body: JSON.stringify({
-                  candidate_id: Number(candidateId),
-                  action: candidateAction,
-                  draft_guidance: brief ? brief.value : '',
-                }),
-              });
-              delete state.pendingCandidateDrafts[candidateId];
-              render(payload);
-              setMessage(payload.message || 'Candidate updated.');
-            } catch (error) {
-              delete state.pendingCandidateDrafts[candidateId];
-              syncPendingMiniCandidateDraft(candidateId);
+              body: JSON.stringify({
+                candidate_id: Number(candidateId),
+                action: candidateAction,
+                draft_guidance: brief ? brief.value : '',
+              }),
+            });
+            delete state.pendingCandidateDrafts[candidateId];
+            delete state.localCandidateBriefs[candidateId];
+            render(payload);
+            setMessage(payload.message || 'Candidate updated.');
+          } catch (error) {
+            delete state.pendingCandidateDrafts[candidateId];
+            syncPendingMiniCandidateDraft(candidateId);
               setMessage(error.message, true);
             }
             return;
@@ -1825,18 +1946,19 @@ def _render_mini_app() -> str:
             try {
               const payload = await request('/api/mini/candidate-action', {
                 method: 'POST',
-                body: JSON.stringify({
-                  candidate_id: Number(candidateId),
-                  action: candidateAction,
-                  draft_guidance: brief ? brief.value : '',
-                }),
-              });
-              delete state.pendingCandidateActions[candidateId];
-              render(payload);
-              setMessage(payload.message || 'Candidate updated.');
-            } catch (error) {
-              delete state.pendingCandidateActions[candidateId];
-              syncPendingMiniCandidateAction(candidateId);
+              body: JSON.stringify({
+                candidate_id: Number(candidateId),
+                action: candidateAction,
+                draft_guidance: brief ? brief.value : '',
+              }),
+            });
+            delete state.pendingCandidateActions[candidateId];
+            delete state.localCandidateBriefs[candidateId];
+            render(payload);
+            setMessage(payload.message || 'Candidate updated.');
+          } catch (error) {
+            delete state.pendingCandidateActions[candidateId];
+            syncPendingMiniCandidateAction(candidateId);
               setMessage(error.message, true);
             }
             return;
@@ -1855,6 +1977,7 @@ def _render_mini_app() -> str:
                 draft_guidance: brief ? brief.value : '',
               }),
             });
+            delete state.localCandidateBriefs[candidateId];
             render(payload);
             setMessage(payload.message || 'Candidate updated.');
           } catch (error) {
@@ -1896,6 +2019,7 @@ def _render_mini_app() -> str:
                 }),
               });
               delete state.pendingDraftActions[draftId];
+              delete state.localDraftTexts[draftId];
               render(payload);
               setMessage(payload.message || 'Draft updated.');
             } catch (error) {
@@ -1915,6 +2039,7 @@ def _render_mini_app() -> str:
                 draft_text: textarea ? textarea.value : '',
               }),
             });
+            delete state.localDraftTexts[draftId];
             render(payload);
             setMessage(payload.message || 'Draft updated.');
           } catch (error) {
