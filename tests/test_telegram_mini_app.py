@@ -7,13 +7,14 @@ import os
 import tempfile
 import textwrap
 import unittest
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import urlencode
 
 from clearfeed_dashboard import db
 from clearfeed_dashboard.config import load_config
 from clearfeed_dashboard.dashboard import (
+    _latest_original_drafts,
     _mini_bootstrap_payload,
     _mini_candidate_action,
     _mini_draft_action,
@@ -412,6 +413,53 @@ class TelegramMiniAppTests(unittest.TestCase):
                     ).fetchone()
                     self.assertEqual(int(original_draft_count["c"]), 2)
                 self.assertTrue(Path(root / "data" / "generated" / f"draft_{draft_id}.png").exists())
+            finally:
+                self._close_service_logger(service)
+
+    def test_latest_original_drafts_ignore_previous_day_batch_ids(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self._write_repo(root)
+            os.environ["TIMEZONE"] = "UTC"
+            service = self._build_service(root)
+            try:
+                now = datetime.now(timezone.utc)
+                yesterday = now - timedelta(days=1)
+                with managed_connection(service.config.database_path) as conn:
+                    old_draft_id = db.insert_draft(
+                        conn,
+                        candidate_id=None,
+                        draft_type="original",
+                        draft_text="Older standalone draft",
+                        rationale="Older rationale",
+                        model_name="test-originals",
+                    )
+                    today_draft_id = db.insert_draft(
+                        conn,
+                        candidate_id=None,
+                        draft_type="original",
+                        draft_text="Today's standalone draft",
+                        rationale="Today's rationale",
+                        model_name="test-originals",
+                    )
+                    conn.execute(
+                        "UPDATE drafts SET created_at = ?, updated_at = ? WHERE id = ?",
+                        (yesterday.isoformat(), yesterday.isoformat(), old_draft_id),
+                    )
+                    conn.execute(
+                        "UPDATE drafts SET created_at = ?, updated_at = ? WHERE id = ?",
+                        (now.isoformat(), now.isoformat(), today_draft_id),
+                    )
+                    conn.execute(
+                        "INSERT OR REPLACE INTO runtime_state(key, value) VALUES (?, ?)",
+                        ("dashboard.latest_original_batch_ids", json.dumps([old_draft_id])),
+                    )
+
+                rows = _latest_original_drafts(service.config.database_path, service.config.timezone)
+                self.assertEqual([int(row["id"]) for row in rows], [today_draft_id])
+
+                payload = _mini_bootstrap_payload(service)
+                self.assertEqual([int(item["id"]) for item in payload["original_drafts"]], [today_draft_id])
             finally:
                 self._close_service_logger(service)
 

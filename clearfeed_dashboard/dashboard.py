@@ -11,6 +11,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, quote_plus, urlparse
+from zoneinfo import ZoneInfo
 
 from .config import load_config
 from .service import XAgentService
@@ -95,6 +96,7 @@ def run_dashboard(host: str = "127.0.0.1", port: int = 8787) -> None:
                 database_path,
                 status,
                 draft_text_limit,
+                service.config.timezone,
                 setup_status=service.config.setup_status(),
                 archive_voice=archive_voice,
                 voice_review=voice_review,
@@ -414,7 +416,22 @@ def _optional_int(value: Any) -> int | None:
     return int(raw)
 
 
-def _latest_original_drafts(database_path: Path) -> list[sqlite3.Row]:
+def _today_window_utc(timezone_name: str) -> tuple[str, str]:
+    try:
+        zone = ZoneInfo(timezone_name)
+    except Exception:
+        zone = datetime.now().astimezone().tzinfo or timezone.utc
+    local_now = datetime.now(zone)
+    local_start = local_now.replace(hour=0, minute=0, second=0, microsecond=0)
+    local_end = local_start + timedelta(days=1)
+    return (
+        local_start.astimezone(timezone.utc).isoformat(),
+        local_end.astimezone(timezone.utc).isoformat(),
+    )
+
+
+def _latest_original_drafts(database_path: Path, timezone_name: str) -> list[sqlite3.Row]:
+    day_start_utc, day_end_utc = _today_window_utc(timezone_name)
     latest_batch_rows = _query_rows(
         database_path,
         "select value from runtime_state where key = ?",
@@ -434,9 +451,11 @@ def _latest_original_drafts(database_path: Path) -> list[sqlite3.Row]:
                 from drafts d
                 where d.candidate_id is null
                   and d.id in ({placeholders})
+                  and d.created_at >= ?
+                  and d.created_at < ?
                 order by d.id desc
                 """,
-                tuple(latest_batch_ids),
+                tuple(latest_batch_ids) + (day_start_utc, day_end_utc),
             )
             if rows:
                 return rows
@@ -446,9 +465,12 @@ def _latest_original_drafts(database_path: Path) -> list[sqlite3.Row]:
         select d.id, d.draft_type, d.status, d.draft_text, d.updated_at, d.posted_tweet_id, d.image_prompt, d.image_path, d.generation_notes
         from drafts d
         where d.candidate_id is null
+          and d.created_at >= ?
+          and d.created_at < ?
         order by d.id desc
         limit 12
         """,
+        (day_start_utc, day_end_utc),
     )
 
 
@@ -585,7 +607,7 @@ def _mini_bootstrap_payload(
             drafting_enabled=service.config.drafting_enabled,
             image_generation_enabled=image_generation_enabled,
         )
-        for row in _latest_original_drafts(service.config.database_path)
+        for row in _latest_original_drafts(service.config.database_path, service.config.timezone)
     ]
     status = _read_status(service.status_path, persisted_next_run_at=service._load_worker_next_run_at())
     return {
@@ -1678,7 +1700,7 @@ def _render_mini_app() -> str:
         if (!payload.original_drafts.length) {
           const empty = document.createElement('div');
           empty.className = 'empty';
-          empty.textContent = 'No standalone drafts yet.';
+          empty.textContent = 'No standalone drafts generated today yet.';
           originalsView.appendChild(empty);
           return;
         }
@@ -2208,6 +2230,7 @@ def _render_dashboard(
     database_path: Path,
     status: dict[str, Any],
     draft_text_limit: int,
+    timezone_name: str,
     setup_status: dict[str, dict[str, str | bool]],
     archive_voice: dict[str, Any],
     voice_review: dict[str, Any],
@@ -2225,16 +2248,7 @@ def _render_dashboard(
         "select id, status, started_at, finished_at, notes from run_logs order by id desc limit 5",
     )
     queue_candidates = _queue_candidates(database_path)
-    latest_original_drafts = _query_rows(
-        database_path,
-        """
-        select d.id, d.draft_type, d.status, d.draft_text, d.updated_at, d.posted_tweet_id, d.image_prompt, d.image_path, d.generation_notes
-        from drafts d
-        where d.candidate_id is null
-        order by d.id desc
-        limit 12
-        """,
-    )
+    latest_original_drafts = _latest_original_drafts(database_path, timezone_name)
     draft_history_rows = _draft_history_rows(database_path)
     overview_stats = _overview_stats(database_path, live_queue_count=len(queue_candidates))
 
@@ -3661,9 +3675,9 @@ def _render_dashboard(
       </section>
       <section class="card span-12" id="latest-drafts">
         <h2>Generated Original Drafts</h2>
-        <div class="section-note">New standalone drafts from the studio land here immediately after generation. This section shows the latest originals; the full draft history is right below.</div>
+        <div class="section-note">New standalone drafts from the studio land here immediately after generation. This section only shows originals generated today; the full draft history is right below.</div>
         <div class="original-drafts-grid">
-          {original_drafts_html or '<p class="empty-note">No standalone drafts yet.</p>'}
+          {original_drafts_html or '<p class="empty-note">No standalone drafts generated today yet.</p>'}
         </div>
       </section>
       <section class="card span-12" id="draft-history">
