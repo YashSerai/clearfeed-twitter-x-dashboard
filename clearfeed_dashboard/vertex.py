@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import base64
 import mimetypes
+import time
 from pathlib import Path
 from typing import Any
 
 import google.auth
 from google.auth.transport.requests import AuthorizedSession
+from requests import exceptions as requests_exceptions
 
 from .config import AppConfig
 
@@ -22,6 +24,8 @@ class VertexProvider:
         self.config = config
         credentials, _project = google.auth.default(scopes=["https://www.googleapis.com/auth/cloud-platform"])
         self.session = AuthorizedSession(credentials)
+        self.timeout_seconds = max(1, int(getattr(config, "vertex_timeout_seconds", 240)))
+        self.max_retries = max(0, int(getattr(config, "vertex_max_retries", 2)))
 
     def supports_web_search(self) -> bool:
         return True
@@ -51,15 +55,36 @@ class VertexProvider:
         }
         if use_web_search:
             payload["tools"] = [{"googleSearch": {}}]
-        response = self.session.post(self._endpoint(model), json=payload, timeout=120)
-        response.raise_for_status()
-        data = response.json()
+        data = self._post_json(self._endpoint(model), payload)
         candidates = data.get("candidates", [])
         if not candidates:
             raise RuntimeError(f"No candidates returned: {data}")
         parts = candidates[0].get("content", {}).get("parts", [])
         texts = [part.get("text", "") for part in parts if part.get("text")]
         return "\n".join(texts).strip()
+
+    def _post_json(self, endpoint: str, payload: dict[str, Any]) -> dict[str, Any]:
+        last_error: Exception | None = None
+        for attempt in range(self.max_retries + 1):
+            try:
+                response = self.session.post(endpoint, json=payload, timeout=self.timeout_seconds)
+                response.raise_for_status()
+                return response.json()
+            except (
+                requests_exceptions.ReadTimeout,
+                requests_exceptions.ConnectTimeout,
+                requests_exceptions.Timeout,
+                requests_exceptions.ConnectionError,
+            ) as exc:
+                last_error = exc
+                if attempt >= self.max_retries:
+                    break
+                time.sleep(min(2 ** attempt, 8))
+        raise RuntimeError(
+            "Vertex request failed after "
+            f"{self.max_retries + 1} attempt(s). "
+            f"Last error: {last_error}"
+        ) from last_error
 
     def generate_text(
         self,
@@ -124,9 +149,7 @@ class VertexProvider:
             "contents": [{"role": "user", "parts": [{"text": prompt}]}],
             "generationConfig": {"temperature": 0.8, "responseModalities": ["TEXT", "IMAGE"]},
         }
-        response = self.session.post(self._endpoint(model), json=payload, timeout=180)
-        response.raise_for_status()
-        data = response.json()
+        data = self._post_json(self._endpoint(model), payload)
         candidates = data.get("candidates", [])
         if not candidates:
             raise RuntimeError(f"No image candidates returned: {data}")

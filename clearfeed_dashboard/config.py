@@ -108,6 +108,8 @@ class AppConfig:
     openai_compat_base_url: str | None
     openai_compat_api_key: str | None
     openai_compat_timeout_seconds: int
+    vertex_timeout_seconds: int
+    vertex_max_retries: int
     telegram_bot_token: str | None
     telegram_chat_id: str | None
     public_base_url: str | None
@@ -434,6 +436,8 @@ def load_config(root: str | Path | None = None) -> AppConfig:
         openai_compat_base_url=_optional_env("OPENAI_COMPAT_BASE_URL"),
         openai_compat_api_key=_optional_env("OPENAI_COMPAT_API_KEY"),
         openai_compat_timeout_seconds=_get_int("OPENAI_COMPAT_TIMEOUT_SECONDS", 180),
+        vertex_timeout_seconds=_get_int("VERTEX_TIMEOUT_SECONDS", 240),
+        vertex_max_retries=_get_int("VERTEX_MAX_RETRIES", 2),
         telegram_bot_token=_optional_env("TELEGRAM_BOT_TOKEN"),
         telegram_chat_id=_optional_env("TELEGRAM_CHAT_ID"),
         public_base_url=_optional_env("PUBLIC_BASE_URL"),
