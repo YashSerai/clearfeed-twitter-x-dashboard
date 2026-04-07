@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import shutil
-import time
 from pathlib import Path
 
 from playwright.sync_api import Page, sync_playwright
@@ -58,6 +57,24 @@ def save_recording(page: Page, target_name: str) -> None:
     shutil.move(str(temp_path), str(target_path))
 
 
+def scroll_to_newest_heading(page: Page, prefix: str) -> None:
+    page.evaluate(
+        """(headingPrefix) => {
+            const headings = Array.from(document.querySelectorAll('h3'))
+              .filter((node) => ((node.textContent || '').trim().startsWith(headingPrefix)));
+            if (!headings.length) return;
+            const newest = headings
+              .map((node) => ({
+                node,
+                id: Number(((node.textContent || '').match(/#(\\d+)/) || [0, 0])[1] || 0),
+              }))
+              .sort((a, b) => b.id - a.id)[0];
+            newest.node.scrollIntoView({ behavior: 'auto', block: 'center' });
+        }""",
+        prefix,
+    )
+
+
 def record_flow(browser, name: str, flow) -> Path:
     context = browser.new_context(
         viewport=VIEWPORT,
@@ -68,7 +85,7 @@ def record_flow(browser, name: str, flow) -> Path:
     page = context.new_page()
     goto_dashboard(page)
     flow(page)
-    page.wait_for_timeout(1200)
+    page.wait_for_timeout(1500)
     context.close()
     save_recording(page, f"{name}.webm")
     return RAW_DIR / f"{name}.webm"
@@ -80,7 +97,7 @@ def flow_full_page_scroll(page: Page) -> None:
         "() => Math.max(document.body.scrollHeight, document.documentElement.scrollHeight) - window.innerHeight"
     )
     slow_scroll(page, 0, int(max_scroll), step=36, delay=0.05)
-    page.wait_for_timeout(800)
+    page.wait_for_timeout(1200)
 
 
 def flow_generate_tweet(page: Page) -> None:
@@ -97,7 +114,9 @@ def flow_generate_tweet(page: Page) -> None:
     guidance.press_sequentially(DEMO_REPLY_GUIDANCE, delay=18)
     page.wait_for_timeout(500)
     page.get_by_role("button", name="Draft Reply").first.click(no_wait_after=True)
-    page.wait_for_timeout(4500)
+    page.wait_for_timeout(80000)
+    scroll_to_newest_heading(page, "Latest Draft #")
+    page.wait_for_timeout(1400)
 
 
 def flow_original_prompt(page: Page) -> None:
@@ -109,7 +128,9 @@ def flow_original_prompt(page: Page) -> None:
     topic_input.press_sequentially(DEMO_ORIGINAL_PROMPT, delay=16)
     page.wait_for_timeout(500)
     page.get_by_role("button", name="Generate Selected Drafts").click(no_wait_after=True)
-    page.wait_for_timeout(5000)
+    page.wait_for_timeout(80000)
+    scroll_to_newest_heading(page, "Original Draft #")
+    page.wait_for_timeout(1400)
 
 
 def flow_adaptive_voice(page: Page) -> None:
@@ -137,7 +158,7 @@ def flow_adaptive_voice(page: Page) -> None:
         }"""
     )
     slow_scroll(page, int(top), int(bottom), step=30, delay=0.06)
-    page.wait_for_timeout(900)
+    page.wait_for_timeout(1200)
 
 
 def main() -> None:
