@@ -1,6 +1,7 @@
 ﻿from __future__ import annotations
 
 import json
+import mimetypes
 import os
 import sqlite3
 import subprocess
@@ -79,6 +80,19 @@ def run_dashboard(host: str = "127.0.0.1", port: int = 8787) -> None:
                 self.send_header("Content-Length", str(len(body)))
                 self.end_headers()
                 self.wfile.write(body)
+                return
+            if parsed.path == "/draft-image":
+                draft_id = _optional_int(parse_qs(parsed.query).get("draft_id", [""])[0])
+                if draft_id is None:
+                    self.send_response(400)
+                    self.end_headers()
+                    return
+                image_path = _resolve_draft_image_path(root, database_path, draft_id)
+                if image_path is None:
+                    self.send_response(404)
+                    self.end_headers()
+                    return
+                self._send_file(image_path)
                 return
 
             if parsed.path not in {"/", "/index.html"}:
@@ -331,6 +345,18 @@ def run_dashboard(host: str = "127.0.0.1", port: int = 8787) -> None:
             self.end_headers()
             self.wfile.write(body)
 
+        def _send_file(self, path: Path) -> None:
+            body = path.read_bytes()
+            mime_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+            self.send_response(200)
+            self.send_header("Content-Type", mime_type)
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Disposition", f'inline; filename="{path.name}"')
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.end_headers()
+            self.wfile.write(body)
+
         def _json_payload(self) -> dict[str, Any]:
             length = int(self.headers.get("Content-Length", "0"))
             raw = self.rfile.read(length).decode("utf-8")
@@ -414,6 +440,31 @@ def _optional_int(value: Any) -> int | None:
     if not raw:
         return None
     return int(raw)
+
+
+def _draft_image_url(draft_id: int) -> str:
+    return f"/draft-image?draft_id={draft_id}"
+
+
+def _resolve_draft_image_path(root: Path, database_path: Path, draft_id: int) -> Path | None:
+    rows = _query_rows(database_path, "select image_path from drafts where id = ?", (draft_id,))
+    if not rows:
+        return None
+    raw_path = str(rows[0]["image_path"] or "").strip()
+    if not raw_path:
+        return None
+    generated_root = (root / "data" / "generated").resolve()
+    try:
+        candidate_path = Path(raw_path).expanduser()
+        if not candidate_path.is_absolute():
+            candidate_path = root / candidate_path
+        resolved_path = candidate_path.resolve()
+        resolved_path.relative_to(generated_root)
+    except Exception:
+        return None
+    if not resolved_path.is_file():
+        return None
+    return resolved_path
 
 
 def _today_window_utc(timezone_name: str) -> tuple[str, str]:
@@ -524,6 +575,7 @@ def _serialize_mini_draft(
         "posted_tweet_id": str(row["posted_tweet_id"] or ""),
         "image_prompt": image_prompt,
         "image_path": image_path,
+        "image_url": _draft_image_url(int(row["id"])) if image_path else "",
         "has_image_prompt": bool(image_prompt),
         "has_image_path": bool(image_path),
         "can_generate_image": bool(
@@ -663,6 +715,24 @@ def _mini_draft_action(service: XAgentService, payload: dict[str, Any]) -> dict[
     if draft_text is not None:
         draft_text = str(draft_text)
     return service.draft_action(draft_id, action, notify_telegram=False, draft_text=draft_text)
+
+
+def _draft_image_preview(draft_id: int, image_path: Any) -> str:
+    if not str(image_path or "").strip():
+        return ""
+    image_url = _draft_image_url(draft_id)
+    return (
+        '<div class="draft-image-block">'
+        '<div class="section-label">Generated Image</div>'
+        f'<a class="draft-image-frame" href="{_escape(image_url)}" target="_blank" rel="noreferrer">'
+        f'<img class="draft-image" src="{_escape(image_url)}" alt="Generated draft image for draft #{draft_id}" loading="lazy" decoding="async">'
+        "</a>"
+        '<div class="draft-image-meta">'
+        '<span>Preview the image here before you paste it into X.</span>'
+        f'<a href="{_escape(image_url)}" target="_blank" rel="noreferrer">Open full image</a>'
+        "</div>"
+        "</div>"
+    )
 
 
 def _mini_original_action(service: XAgentService, payload: dict[str, Any]) -> dict[str, Any]:
@@ -888,6 +958,18 @@ def _render_mini_app() -> str:
     .actions button.bad { border-color: rgba(251,125,150,.22); background: rgba(251,125,150,.12); }
     .actions button.ghost { background: rgba(255,255,255,.02); }
     .draft-box { margin-top: 14px; padding-top: 14px; border-top: 1px solid rgba(255,255,255,.08); }
+    .draft-image-block { display: grid; gap: 8px; margin-top: 12px; }
+    .draft-image-frame {
+      display: block; overflow: hidden; border-radius: 18px; border: 1px solid rgba(255,255,255,.08);
+      background: rgba(255,255,255,.03);
+    }
+    .draft-image {
+      display: block; width: 100%; max-height: 360px; object-fit: contain; background: rgba(8,14,21,.55);
+    }
+    .draft-image-meta {
+      display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap;
+      color: var(--muted); font-size: 12px; line-height: 1.45;
+    }
     .section-label {
       margin-bottom: 8px; color: var(--muted-2); font-size: 11px; letter-spacing: .12em; text-transform: uppercase;
     }
@@ -1417,11 +1499,40 @@ def _render_mini_app() -> str:
         Object.keys(state.pendingDraftActions).length
       ) > 0;
 
-      const copyText = async (text) => {
-        await navigator.clipboard.writeText(text || '');
+      const copyDraftToClipboard = async (text, imageUrl = '') => {
+        const normalizedText = String(text || '');
+        if (
+          imageUrl &&
+          navigator.clipboard &&
+          typeof navigator.clipboard.write === 'function' &&
+          typeof ClipboardItem === 'function'
+        ) {
+          try {
+            const response = await fetch(imageUrl, { credentials: 'same-origin', cache: 'no-store' });
+            if (!response.ok) {
+              throw new Error(`Image request failed with status ${response.status}`);
+            }
+            const imageBlob = await response.blob();
+            if (!imageBlob.type.startsWith('image/')) {
+              throw new Error('Draft image response was not an image.');
+            }
+            const clipboardItem = new ClipboardItem({
+              'text/plain': new Blob([normalizedText], { type: 'text/plain' }),
+              [imageBlob.type]: imageBlob,
+            });
+            await navigator.clipboard.write([clipboardItem]);
+            if (webApp && webApp.HapticFeedback && webApp.HapticFeedback.notificationOccurred) {
+              webApp.HapticFeedback.notificationOccurred('success');
+            }
+            return { image: true };
+          } catch (_error) {
+          }
+        }
+        await navigator.clipboard.writeText(normalizedText);
         if (webApp && webApp.HapticFeedback && webApp.HapticFeedback.notificationOccurred) {
           webApp.HapticFeedback.notificationOccurred('success');
         }
+        return { image: false };
       };
 
       const normalizeOriginalTopicKey = (item) => String((item && (item.prompt_seed || item.title)) || '').trim().toLowerCase();
@@ -1525,6 +1636,18 @@ def _render_mini_app() -> str:
         card.id = `draft-${draft.id}`;
         card.dataset.liveDraftCard = 'true';
         card.dataset.draftCard = String(draft.id);
+        const imagePreview = draft.image_url ? `
+          <div class="draft-image-block">
+            <div class="section-label">Generated Image</div>
+            <a class="draft-image-frame" href="${escapeHtml(draft.image_url)}" target="_blank" rel="noreferrer">
+              <img class="draft-image" src="${escapeHtml(draft.image_url)}" alt="Generated draft image for draft ${draft.id}" loading="lazy">
+            </a>
+            <div class="draft-image-meta">
+              <span>Preview the image here before you paste it into X.</span>
+              <a href="${escapeHtml(draft.image_url)}" target="_blank" rel="noreferrer">Open full image</a>
+            </div>
+          </div>
+        ` : '';
         card.innerHTML = `
           <div class="draft-head">
             <div>
@@ -1542,10 +1665,10 @@ def _render_mini_app() -> str:
               <span>${draftText.length}${draft.draft_text_limit ? ` / ${draft.draft_text_limit}` : ' chars'}</span>
               <span>${draft.has_image_prompt ? 'Image prompt available' : 'Text only'}</span>
             </div>
-            ${draft.has_image_path ? `<div class="note" style="margin-top:8px;">Generated image saved at ${escapeHtml(draft.image_path)}</div>` : ''}
+            ${imagePreview}
             <div class="actions">
               ${draft.is_editable ? `<button type="button" class="ghost" data-draft-action="save_text" data-draft-id="${draft.id}" ${pendingDraftAction ? 'disabled' : ''}>Save Draft</button>` : ''}
-              <button type="button" class="ghost" data-copy-draft="${draft.id}" ${pendingDraftAction ? 'disabled' : ''}>Copy</button>
+              <button type="button" class="ghost" data-copy-draft="${draft.id}" data-copy-image-url="${escapeHtml(draft.image_url || '')}" ${pendingDraftAction ? 'disabled' : ''}>Copy</button>
               ${draft.is_editable ? `<button type="button" class="ok" data-draft-action="manual" data-draft-id="${draft.id}" ${pendingDraftAction ? 'disabled' : ''}>Mark Posted</button>` : ''}
               ${draft.is_editable ? `<button type="button" class="bad" data-draft-action="reject" data-draft-id="${draft.id}" ${pendingDraftAction ? 'disabled' : ''}>Reject</button>` : ''}
               ${draft.can_generate_image ? `<button type="button" data-draft-action="image" data-draft-id="${draft.id}" ${pendingDraftAction ? 'disabled' : ''}>Generate Image</button>` : ''}
@@ -1925,8 +2048,15 @@ def _render_mini_app() -> str:
           const textarea = document.querySelector(`[data-draft-text="${copyDraftId}"]`);
           if (textarea) {
             try {
-              await copyText(textarea.value);
-              setMessage(`Copied draft #${copyDraftId}.`);
+              const imageUrl = target.getAttribute('data-copy-image-url') || '';
+              const copied = await copyDraftToClipboard(textarea.value, imageUrl);
+              if (copied.image) {
+                setMessage(`Copied draft #${copyDraftId} with its image.`);
+              } else if (imageUrl) {
+                setMessage(`Copied draft #${copyDraftId}. Image copy is not supported here, so only the text was copied.`);
+              } else {
+                setMessage(`Copied draft #${copyDraftId}.`);
+              }
             } catch (error) {
               setMessage('Copy failed.', true);
             }
@@ -3030,6 +3160,18 @@ def _render_dashboard(
     }}
     .draft-editor[readonly] {{
       opacity: .92;
+    }}
+    .draft-image-block {{ display: grid; gap: 8px; margin-top: 12px; }}
+    .draft-image-frame {{
+      display: block; overflow: hidden; border-radius: 18px; border: 1px solid rgba(255,255,255,.08);
+      background: rgba(255,255,255,.03);
+    }}
+    .draft-image {{
+      display: block; width: 100%; max-height: 420px; object-fit: contain; background: rgba(8,14,21,.55);
+    }}
+    .draft-image-meta {{
+      display: flex; justify-content: space-between; gap: 10px; align-items: center; flex-wrap: wrap;
+      color: var(--muted); font-size: 12px; line-height: 1.45;
     }}
     .draft-meta {{
       display: flex;
@@ -4309,6 +4451,35 @@ def _render_dashboard(
     }});
   }};
   bindDraftEditorsAndForms();
+  const copyDraftToClipboard = async (text, imageUrl = '') => {{
+    const normalizedText = String(text || '');
+    if (
+      imageUrl &&
+      navigator.clipboard &&
+      typeof navigator.clipboard.write === 'function' &&
+      typeof ClipboardItem === 'function'
+    ) {{
+      try {{
+        const response = await fetch(imageUrl, {{ credentials: 'same-origin', cache: 'no-store' }});
+        if (!response.ok) {{
+          throw new Error(`Image request failed with status ${{response.status}}`);
+        }}
+        const imageBlob = await response.blob();
+        if (!imageBlob.type.startsWith('image/')) {{
+          throw new Error('Draft image response was not an image.');
+        }}
+        const clipboardItem = new ClipboardItem({{
+          'text/plain': new Blob([normalizedText], {{ type: 'text/plain' }}),
+          [imageBlob.type]: imageBlob,
+        }});
+        await navigator.clipboard.write([clipboardItem]);
+        return {{ image: true }};
+      }} catch (_error) {{
+      }}
+    }}
+    await navigator.clipboard.writeText(normalizedText);
+    return {{ image: false }};
+  }};
   if (originalTopicInput) {{
     originalTopicInput.addEventListener('input', () => {{
       if (!selectedOriginalTopics.length) {{
@@ -4376,8 +4547,15 @@ def _render_dashboard(
       return;
     }}
     try {{
-      await navigator.clipboard.writeText(editor.value);
-      showToast('Draft copied');
+      const imageUrl = button.dataset.copyImageUrl || '';
+      const copied = await copyDraftToClipboard(editor.value, imageUrl);
+      if (copied.image) {{
+        showToast('Draft and image copied');
+      }} else if (imageUrl) {{
+        showToast('Draft copied. Image copy is not supported here, so only the text was copied.');
+      }} else {{
+        showToast('Draft copied');
+      }}
     }} catch (_err) {{
       editor.focus();
       editor.select();
@@ -5290,6 +5468,7 @@ def _candidate_draft_panel(
         '</div>'
         f"{guidance_html}"
         f"{_draft_text_editor(draft_id, row['draft_text'] or '', draft_status, draft_text_limit)}"
+        f"{_draft_image_preview(draft_id, row['draft_image_path'])}"
         f"{controls}"
         '</section>'
     )
@@ -5330,6 +5509,7 @@ def _original_draft_card(
         '</div>'
         f"{notes_html}"
         f"{_draft_text_editor(int(row['id']), row['draft_text'] or '', str(row['status'] or ''), draft_text_limit)}"
+        f"{_draft_image_preview(int(row['id']), row['image_path'])}"
         f"{controls}"
         '</article>'
     )
@@ -5427,7 +5607,7 @@ def _draft_action_buttons(
     if status != "drafted":
         return ""
     controls = ['<div class="draft-inline-actions">']
-    controls.append(_copy_button(draft_id, "Copy Draft"))
+    controls.append(_copy_button(draft_id, "Copy Draft", image_url=_draft_image_url(draft_id) if image_path else None))
     controls.append(
         _post_button("/draft", "draft_id", draft_id, "action", "manual", "Mark Posted", "ok", "Marking posted...")
     )
@@ -5480,10 +5660,11 @@ def _post_button(
     )
 
 
-def _copy_button(draft_id: int, label: str) -> str:
+def _copy_button(draft_id: int, label: str, image_url: str | None = None) -> str:
+    image_attr = f' data-copy-image-url="{_escape(image_url)}"' if image_url else ""
     return (
         '<button type="button" class="ghost-button" '
-        f'data-copy-draft data-draft-id="{draft_id}" data-copy-label="{_escape(label)}">{label}</button>'
+        f'data-copy-draft data-draft-id="{draft_id}" data-copy-label="{_escape(label)}"{image_attr}>{label}</button>'
     )
 
 

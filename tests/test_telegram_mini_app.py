@@ -14,12 +14,14 @@ from urllib.parse import urlencode
 from clearfeed_dashboard import db
 from clearfeed_dashboard.config import load_config
 from clearfeed_dashboard.dashboard import (
+    _draft_image_url,
     _latest_original_drafts,
     _mini_bootstrap_payload,
     _mini_candidate_action,
     _mini_draft_action,
     _mini_original_action,
     _mini_original_topics_action,
+    _resolve_draft_image_path,
     _render_mini_app,
 )
 from clearfeed_dashboard.scraper import normalize_tweet_url
@@ -361,6 +363,9 @@ class TelegramMiniAppTests(unittest.TestCase):
                     },
                 )
                 self.assertIn("Generated image", image_result["message"])
+                post_image_payload = _mini_bootstrap_payload(service, focus_candidate_id=candidate_id, focus_draft_id=draft_id)
+                self.assertEqual(post_image_payload["queue"][0]["draft"]["image_url"], _draft_image_url(draft_id))
+                self.assertTrue(post_image_payload["queue"][0]["draft"]["has_image_path"])
 
                 manual_result = _mini_draft_action(
                     service,
@@ -413,6 +418,39 @@ class TelegramMiniAppTests(unittest.TestCase):
                     ).fetchone()
                     self.assertEqual(int(original_draft_count["c"]), 2)
                 self.assertTrue(Path(root / "data" / "generated" / f"draft_{draft_id}.png").exists())
+            finally:
+                self._close_service_logger(service)
+
+    def test_resolve_draft_image_path_only_allows_generated_assets(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self._write_repo(root)
+            service = self._build_service(root)
+            try:
+                safe_image = root / "data" / "generated" / "draft_safe.png"
+                safe_image.parent.mkdir(parents=True, exist_ok=True)
+                safe_image.write_bytes(b"fake-image")
+                unsafe_image = root / "logs" / "draft_unsafe.png"
+                unsafe_image.parent.mkdir(parents=True, exist_ok=True)
+                unsafe_image.write_bytes(b"fake-image")
+                with managed_connection(service.config.database_path) as conn:
+                    safe_draft_id = db.insert_draft(conn, None, "original", "Safe draft", "Safe rationale", "test-originals")
+                    unsafe_draft_id = db.insert_draft(
+                        conn,
+                        None,
+                        "original",
+                        "Unsafe draft",
+                        "Unsafe rationale",
+                        "test-originals",
+                    )
+                    db.update_draft_image(conn, safe_draft_id, str(safe_image))
+                    db.update_draft_image(conn, unsafe_draft_id, str(unsafe_image))
+                self.assertEqual(
+                    _resolve_draft_image_path(root, service.config.database_path, safe_draft_id),
+                    safe_image.resolve(),
+                )
+                self.assertIsNone(_resolve_draft_image_path(root, service.config.database_path, unsafe_draft_id))
+                self.assertEqual(_draft_image_url(safe_draft_id), f"/draft-image?draft_id={safe_draft_id}")
             finally:
                 self._close_service_logger(service)
 
